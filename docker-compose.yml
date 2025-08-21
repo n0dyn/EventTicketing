@@ -12,7 +12,7 @@ services:
       - POSTGRES_PASSWORD=""
       - POSTGRES_DB=eventticketing
     ports:
-      - "5434:5432"
+      - "5435:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -24,7 +24,7 @@ services:
     image: redis:7-alpine
     container_name: eventticketing-redis
     ports:
-      - "6380:6379"
+      - "6381:6379"
     volumes:
       - redis_data:/data
     command: redis-server --save 60 1 --loglevel warning
@@ -38,7 +38,7 @@ services:
     volumes:
       - ./backend:/app
     ports:
-      - "8000:8000"
+      - "8001:8000"
     environment:
       - SQLALCHEMY_DATABASE_URI=postgresql+asyncpg://postgres@postgres:5432/eventticketing
       - POSTGRES_SERVER=postgres
@@ -48,7 +48,7 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - JWT_SECRET=changeme
       - ENVIRONMENT=development
-      - BACKEND_CORS_ORIGINS=["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost:3001"]
+      - BACKEND_CORS_ORIGINS=["http://localhost:3001", "http://127.0.0.1:3001", "http://localhost:3002"]
     depends_on:
       - postgres
       - redis
@@ -64,9 +64,9 @@ services:
       - ./frontend:/app
       - /app/node_modules
     ports:
-      - "3000:3000"
+      - "3001:3000"
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8000
+      - NEXT_PUBLIC_API_URL=http://localhost:8001
     depends_on:
       - backend
     command: npm run dev
@@ -96,7 +96,7 @@ services:
       - PGADMIN_DEFAULT_EMAIL=admin@admin.com
       - PGADMIN_DEFAULT_PASSWORD=admin
     ports:
-      - "5050:80"
+      - "5051:80"
     depends_on:
       - postgres
 
