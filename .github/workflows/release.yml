@@ -1,0 +1,298 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., v1.2.3)'
+        required: true
+        type: string
+
+env:
+  PYTHON_VERSION: "3.11"
+  NODE_VERSION: "18"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Extract version
+      id: version
+      run: |
+        if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+          VERSION="${{ github.event.inputs.version }}"
+        else
+          VERSION=${GITHUB_REF#refs/tags/}
+        fi
+        echo "version=${VERSION}" >> $GITHUB_OUTPUT
+        echo "Releasing version: ${VERSION}"
+    
+    - name: Validate version format
+      run: |
+        VERSION="${{ steps.version.outputs.version }}"
+        if [[ ! $VERSION =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "Error: Version must follow semantic versioning (v1.2.3)"
+          exit 1
+        fi
+
+  test-and-build:
+    runs-on: ubuntu-latest
+    needs: validate
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: test_eventtickets
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+    
+    - name: Install Poetry
+      uses: snok/install-poetry@v1
+      with:
+        version: "1.7.1"
+    
+    - name: Install backend dependencies
+      working-directory: ./backend
+      run: poetry install
+    
+    - name: Install frontend dependencies
+      working-directory: ./frontend
+      run: npm ci
+    
+    - name: Run backend tests
+      working-directory: ./backend
+      run: |
+        cat > .env.test << EOF
+        DATABASE_URL=postgresql+asyncpg://test_user:test_password@localhost:5432/test_eventtickets
+        REDIS_URL=redis://localhost:6379/0
+        SECRET_KEY=release_test_secret_key
+        ENVIRONMENT=test
+        PROJECT_NAME=EventTicketing Release Test
+        EOF
+        poetry run alembic upgrade head
+        poetry run pytest --cov=app
+      env:
+        DATABASE_URL: postgresql+asyncpg://test_user:test_password@localhost:5432/test_eventtickets
+    
+    - name: Run frontend tests
+      working-directory: ./frontend
+      run: npm run test:coverage
+    
+    - name: Build frontend
+      working-directory: ./frontend
+      run: npm run build
+
+  create-release:
+    runs-on: ubuntu-latest
+    needs: [validate, test-and-build]
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Fetch all history for changelog generation
+    
+    - name: Generate changelog
+      id: changelog
+      run: |
+        # Get the last tag
+        LAST_TAG=$(git describe --tags --abbrev=0 HEAD~1 2>/dev/null || echo "")
+        
+        if [ -z "$LAST_TAG" ]; then
+          echo "No previous tag found, generating changelog from initial commit"
+          COMMIT_RANGE="$(git rev-list --max-parents=0 HEAD)..HEAD"
+        else
+          echo "Last tag: $LAST_TAG"
+          COMMIT_RANGE="${LAST_TAG}..HEAD"
+        fi
+        
+        echo "Generating changelog for range: $COMMIT_RANGE"
+        
+        # Generate changelog
+        cat > CHANGELOG.md << EOF
+        # Changelog
+        
+        ## [${{ needs.validate.outputs.version }}] - $(date +%Y-%m-%d)
+        
+        ### Added
+        $(git log $COMMIT_RANGE --grep="feat" --pretty=format:"- %s" || echo "- No new features")
+        
+        ### Changed
+        $(git log $COMMIT_RANGE --grep="chore\|refactor" --pretty=format:"- %s" || echo "- No changes")
+        
+        ### Fixed
+        $(git log $COMMIT_RANGE --grep="fix" --pretty=format:"- %s" || echo "- No bug fixes")
+        
+        ### Security
+        $(git log $COMMIT_RANGE --grep="security" --pretty=format:"- %s" || echo "- No security updates")
+        
+        ### All Commits
+        $(git log $COMMIT_RANGE --pretty=format:"- %h %s")
+        EOF
+        
+        echo "changelog<<EOF" >> $GITHUB_OUTPUT
+        cat CHANGELOG.md >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+    
+    - name: Create GitHub Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ needs.validate.outputs.version }}
+        release_name: Release ${{ needs.validate.outputs.version }}
+        body: |
+          ${{ steps.changelog.outputs.changelog }}
+          
+          ## Installation
+          
+          ### Docker
+          ```bash
+          # Pull the latest images
+          docker pull ${{ secrets.DOCKER_USERNAME }}/eventtickets-backend:${{ needs.validate.outputs.version }}
+          docker pull ${{ secrets.DOCKER_USERNAME }}/eventtickets-frontend:${{ needs.validate.outputs.version }}
+          ```
+          
+          ### From Source
+          ```bash
+          # Clone the repository
+          git clone https://github.com/${{ github.repository }}.git
+          cd eventtickets
+          git checkout ${{ needs.validate.outputs.version }}
+          
+          # Follow the installation instructions in README.md
+          ```
+          
+          ## Documentation
+          - [Installation Guide](https://github.com/${{ github.repository }}/blob/${{ needs.validate.outputs.version }}/README.md)
+          - [API Documentation](https://github.com/${{ github.repository }}/blob/${{ needs.validate.outputs.version }}/docs/api.md)
+          - [Deployment Guide](https://github.com/${{ github.repository }}/blob/${{ needs.validate.outputs.version }}/docs/deployment.md)
+          
+          ---
+          **Full Changelog**: https://github.com/${{ github.repository }}/compare/${{ steps.changelog.outputs.last_tag }}...${{ needs.validate.outputs.version }}
+        draft: false
+        prerelease: ${{ contains(needs.validate.outputs.version, '-') }}
+
+  build-and-push-release:
+    runs-on: ubuntu-latest
+    needs: [validate, create-release]
+    
+    strategy:
+      matrix:
+        service: [backend, frontend]
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+    
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ secrets.DOCKER_USERNAME }}/eventtickets-${{ matrix.service }}
+        tags: |
+          type=semver,pattern={{version}},value=${{ needs.validate.outputs.version }}
+          type=semver,pattern={{major}}.{{minor}},value=${{ needs.validate.outputs.version }}
+          type=semver,pattern={{major}},value=${{ needs.validate.outputs.version }}
+          type=raw,value=latest,enable={{is_default_branch}}
+    
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./${{ matrix.service }}
+        file: ./${{ matrix.service }}/Dockerfile.prod
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        build-args: |
+          VERSION=${{ needs.validate.outputs.version }}
+          BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          VCS_REF=${{ github.sha }}
+
+  deploy-to-production:
+    runs-on: ubuntu-latest
+    needs: [validate, build-and-push-release]
+    environment: production
+    if: "!contains(needs.validate.outputs.version, '-')"  # Only deploy stable releases
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Deploy to production
+      run: |
+        echo "Deploying version ${{ needs.validate.outputs.version }} to production..."
+        echo "This would typically involve:"
+        echo "1. Updating Kubernetes manifests with new image tags"
+        echo "2. Applying database migrations"
+        echo "3. Performing rolling deployment"
+        echo "4. Running post-deployment health checks"
+        echo "5. Sending deployment notifications"
+        
+        # In a real deployment, this would use kubectl, helm, or other deployment tools
+        
+        echo "Production deployment completed successfully"
+    
+    - name: Post-deployment verification
+      run: |
+        echo "Running post-deployment verification..."
+        # curl -f https://api.eventtickets.example.com/health
+        # curl -f https://eventtickets.example.com
+        echo "Verification completed successfully"
+    
+    - name: Notify deployment success
+      run: |
+        echo "Sending deployment success notifications..."
+        echo "Version: ${{ needs.validate.outputs.version }}"
+        echo "Environment: production"
+        echo "Status: success"

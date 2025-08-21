@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block title %}Order Confirmation - {{ project_name }}{% endblock %}
+
+{% block content %}
+<h2>Order Confirmation ✅</h2>
+
+<p>Hi {{ user_name }},</p>
+
+<p>Thank you for your order! We're excited to confirm your booking for <strong>{{ event_title }}</strong>.</p>
+
+<div class="order-details">
+    <h3>Order Details</h3>
+    <p><strong>Order Number:</strong> {{ order_number }}</p>
+    <p><strong>Event:</strong> {{ event_title }}</p>
+    <p><strong>Date:</strong> {{ event_date.strftime('%B %d, %Y at %I:%M %p') if event_date else 'TBD' }}</p>
+    <p><strong>Location:</strong> {{ event_location or 'Location TBD' }}</p>
+    <p><strong>Total Amount:</strong> {{ currency }}{{ "%.2f"|format(total_amount) }}</p>
+</div>
+
+<div class="highlight">
+    <h3>What happens next?</h3>
+    <ul>
+        <li>You'll receive your tickets via email shortly</li>
+        <li>Keep this confirmation for your records</li>
+        <li>We'll send you a reminder before the event</li>
+    </ul>
+</div>
+
+<p>If you have any questions about your order, please don't hesitate to contact our support team.</p>
+
+<p class="text-muted">
+    <strong>Need to make changes?</strong> Contact us as soon as possible. Changes may be subject to the event organizer's policies.
+</p>
+{% endblock %}

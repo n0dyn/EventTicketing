@@ -1,0 +1,27 @@
+{
+  "name": "EventTicketing",
+  "short_name": "EventTicketing",
+  "description": "Modern event ticketing and management platform",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#3b82f6",
+  "orientation": "portrait-primary",
+  "categories": ["events", "tickets", "entertainment", "business"],
+  "lang": "en",
+  "dir": "ltr",
+  "icons": [],
+  "shortcuts": [],
+  "related_applications": [],
+  "prefer_related_applications": false,
+  "share_target": {
+    "action": "/share",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  }
+}

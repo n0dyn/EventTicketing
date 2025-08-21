@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+
+{% block title %}Welcome to {{ project_name }}{% endblock %}
+
+{% block content %}
+<h2>Welcome to {{ project_name }}, {{ user_name }}! 🎉</h2>
+
+<p>Thank you for joining {{ project_name }}, your go-to platform for discovering and attending amazing events!</p>
+
+<div class="highlight">
+    <h3>What's next?</h3>
+    <ul>
+        <li><strong>Explore Events:</strong> Browse through hundreds of exciting events in your area</li>
+        <li><strong>Book Tickets:</strong> Secure your spot at events with our simple booking process</li>
+        <li><strong>Manage Orders:</strong> Keep track of your tickets and orders in your dashboard</li>
+        <li><strong>Stay Updated:</strong> Get notified about new events and special offers</li>
+    </ul>
+</div>
+
+<div class="text-center mt-3">
+    <a href="{{ login_url }}" class="button">Get Started</a>
+</div>
+
+<p class="text-muted">
+    Your account is ready to use! You can log in anytime using your email address.
+</p>
+{% endblock %}

@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block title %}Payment Receipt - {{ project_name }}{% endblock %}
+
+{% block content %}
+<h2>Payment Receipt 💳</h2>
+
+<p>Hi {{ user_name }},</p>
+
+<p>Thank you for your payment! Here's your receipt for order <strong>{{ order_number }}</strong>.</p>
+
+<div class="order-details">
+    <h3>Payment Details</h3>
+    <p><strong>Order Number:</strong> {{ order_number }}</p>
+    <p><strong>Amount Paid:</strong> {{ currency }}{{ "%.2f"|format(payment_amount) }}</p>
+    <p><strong>Payment Method:</strong> {{ payment_method }}</p>
+    <p><strong>Payment Date:</strong> {{ payment_date.strftime('%B %d, %Y at %I:%M %p') if payment_date else 'N/A' }}</p>
+    {% if transaction_id %}
+    <p><strong>Transaction ID:</strong> {{ transaction_id }}</p>
+    {% endif %}
+</div>
+
+<div class="highlight">
+    <p><strong>Payment Status:</strong> <span style="color: #28a745;">Successful</span></p>
+    <p>Your payment has been processed successfully. You should receive your tickets via email shortly.</p>
+</div>
+
+<p class="text-muted">
+    <strong>Keep this receipt for your records.</strong> If you need a refund or have questions about this transaction, please contact our support team with your order number.
+</p>
+
+<div class="text-center mt-3">
+    <p><em>Thank you for choosing {{ project_name }}!</em></p>
+</div>
+{% endblock %}

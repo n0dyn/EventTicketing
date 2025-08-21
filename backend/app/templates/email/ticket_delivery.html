@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block title %}Your Tickets - {{ project_name }}{% endblock %}
+
+{% block content %}
+<h2>Your Tickets Are Here! 🎫</h2>
+
+<p>Hi {{ user_name }},</p>
+
+<p>Your tickets for <strong>{{ event_title }}</strong> are ready!</p>
+
+<div class="highlight">
+    <h3>Event Information</h3>
+    <p><strong>Event:</strong> {{ event_title }}</p>
+    <p><strong>Date:</strong> {{ event_date.strftime('%B %d, %Y at %I:%M %p') if event_date else 'TBD' }}</p>
+    <p><strong>Location:</strong> {{ event_location or 'Location TBD' }}</p>
+    <p><strong>Order Number:</strong> {{ order_number }}</p>
+</div>
+
+<h3>Your Tickets</h3>
+{% for ticket in tickets %}
+<div class="ticket-info">
+    <p><strong>Ticket {{ loop.index }}</strong></p>
+    <p>Type: {{ ticket.ticket_type }}</p>
+    <p>Ticket ID: {{ ticket.ticket_id }}</p>
+    {% if ticket.qr_code %}
+    <p><em>QR Code: Show this at the venue for entry</em></p>
+    {% endif %}
+</div>
+{% endfor %}
+
+<div class="highlight">
+    <h3>Important Reminders</h3>
+    <ul>
+        <li><strong>Save this email:</strong> You'll need it for entry</li>
+        <li><strong>Arrive early:</strong> Allow extra time for check-in</li>
+        <li><strong>Bring ID:</strong> Photo identification may be required</li>
+        <li><strong>Check for updates:</strong> Event details may change</li>
+    </ul>
+</div>
+
+<div class="text-center mt-3">
+    <p><strong>Questions?</strong> Contact our support team for assistance.</p>
+</div>
+{% endblock %}

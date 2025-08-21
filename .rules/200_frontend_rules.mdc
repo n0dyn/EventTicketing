@@ -1,0 +1,123 @@
+---
+alwaysApply: true
+---
+  startDate: z.date().min(new Date(), "Start date must be in the future"),
+  endDate: z.date(),
+}).refine((data) => data.endDate > data.startDate, {
+  message: "End date must be after start date",
+  path: ["endDate"]
+});
+
+type EventFormData = z.infer<typeof eventSchema>;
+
+export function EventForm() {
+  const form = useForm<EventFormData>({
+    resolver: zodResolver(eventSchema),
+    defaultValues: { name: "", description: "" }
+  });
+  
+  const onSubmit = async (data: EventFormData) => {
+    await EventService.createEvent(data);
+  };
+  
+  return (
+    <Form {...form}>
+      <form onSubmit={form.handleSubmit(onSubmit)}>
+        <FormField
+          control={form.control}
+          name="name"
+          render={({ field }) => (
+            <FormItem>
+              <FormLabel>Event Name</FormLabel>
+              <FormControl>
+                <Input {...field} />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          )}
+        />
+      </form>
+    </Form>
+  );
+}
+```
+
+### Styling Guidelines
+```typescript
+// Tailwind CSS patterns
+// Use utility-first approach
+// Component variants with cva
+import { cva } from "class-variance-authority";
+
+const buttonVariants = cva(
+  "inline-flex items-center justify-center rounded-md text-sm font-medium transition-colors",
+  {
+    variants: {
+      variant: {
+        default: "bg-primary text-primary-foreground hover:bg-primary/90",
+        destructive: "bg-destructive text-destructive-foreground hover:bg-destructive/90",
+        outline: "border border-input hover:bg-accent hover:text-accent-foreground",
+      },
+      size: {
+        default: "h-10 px-4 py-2",
+        sm: "h-9 rounded-md px-3",
+        lg: "h-11 rounded-md px-8",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+      size: "default",
+    },
+  }
+);
+```
+
+### Error Handling
+```typescript
+// Error boundary pattern
+class ErrorBoundary extends React.Component<Props, State> {
+  static getDerivedStateFromError(error: Error): State {
+    return { hasError: true, error };
+  }
+  
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error('Error caught by boundary:', error, errorInfo);
+  }
+  
+  render() {
+    if (this.state.hasError) {
+      return <ErrorFallback error={this.state.error} />;
+    }
+    return this.props.children;
+  }
+}
+
+// API error handling
+const handleApiError = (error: any) => {
+  if (error.response?.status === 401) {
+    useAuthStore.getState().logout();
+    router.push('/login');
+  } else {
+    toast.error(error.response?.data?.message || 'An error occurred');
+  }
+};
+```
+
+### Performance Optimization
+- **Code Splitting**: Use dynamic imports for route-based splitting
+- **Image Optimization**: Use Next.js Image component
+- **Bundle Analysis**: Monitor bundle size with @next/bundle-analyzer
+- **Caching**: Implement proper caching strategies
+- **SSR/SSG**: Use appropriate rendering strategy per page
+
+### Testing Patterns
+```typescript
+// Component testing with React Testing Library
+describe('EventCard', () => {
+  it('renders event information correctly', () => {
+    const mockEvent = { id: '1', name: 'Test Event', ... };
+    render(<EventCard event={mockEvent} onRegister={vi.fn()} />);
+    
+    expect(screen.getByText('Test Event')).toBeInTheDocument();
+  });
+});

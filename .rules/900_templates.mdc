@@ -1,0 +1,863 @@
+---
+alwaysApply: true
+---
+
+# Code Templates - EventTicketing Project
+
+## Overview
+This file contains reusable code templates and snippets for common patterns across the EventTicketing project.
+
+## Backend Templates (FastAPI)
+
+### API Endpoint Template
+```python
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from typing import List
+
+from app.db.session import get_db
+from app.models import ModelName
+from app.schemas import ModelCreate, ModelResponse, ModelUpdate
+from app.services import ModelService
+
+router = APIRouter()
+
+@router.post("/", response_model=ModelResponse)
+async def create_item(
+    item: ModelCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+) -> ModelResponse:
+    """Create a new item."""
+    service = ModelService(db)
+    return service.create_item(item, current_user.id)
+
+@router.get("/{item_id}", response_model=ModelResponse)
+async def get_item(
+    item_id: int,
+    db: Session = Depends(get_db)
+) -> ModelResponse:
+    """Get item by ID."""
+    service = ModelService(db)
+    item = service.get_item(item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    return item
+
+@router.get("/", response_model=List[ModelResponse])
+async def get_items(
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db)
+) -> List[ModelResponse]:
+    """Get all items with pagination."""
+    service = ModelService(db)
+    return service.get_items(skip=skip, limit=limit)
+
+@router.put("/{item_id}", response_model=ModelResponse)
+async def update_item(
+    item_id: int,
+    item: ModelUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+) -> ModelResponse:
+    """Update an existing item."""
+    service = ModelService(db)
+    updated_item = service.update_item(item_id, item, current_user.id)
+    if not updated_item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    return updated_item
+
+@router.delete("/{item_id}")
+async def delete_item(
+    item_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Delete an item."""
+    service = ModelService(db)
+    success = service.delete_item(item_id, current_user.id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Item not found")
+    return {"message": "Item deleted successfully"}
+```
+
+### Service Layer Template
+```python
+from typing import List, Optional
+from sqlalchemy.orm import Session
+from app.models import ModelName
+from app.schemas import ModelCreate, ModelUpdate
+
+class ModelService:
+    def __init__(self, db: Session):
+        self.db = db
+    
+    def create_item(self, item_data: ModelCreate, user_id: int) -> ModelName:
+        """Create a new item."""
+        db_item = ModelName(**item_data.dict(), owner_id=user_id)
+        self.db.add(db_item)
+        self.db.commit()
+        self.db.refresh(db_item)
+        return db_item
+    
+    def get_item(self, item_id: int) -> Optional[ModelName]:
+        """Get item by ID."""
+        return self.db.query(ModelName).filter(ModelName.id == item_id).first()
+    
+    def get_items(self, skip: int = 0, limit: int = 100) -> List[ModelName]:
+        """Get items with pagination."""
+        return self.db.query(ModelName).offset(skip).limit(limit).all()
+    
+    def update_item(self, item_id: int, item_data: ModelUpdate, user_id: int) -> Optional[ModelName]:
+        """Update an existing item."""
+        db_item = self.get_item(item_id)
+        if not db_item:
+            return None
+        
+        for field, value in item_data.dict(exclude_unset=True).items():
+            setattr(db_item, field, value)
+        
+        self.db.commit()
+        self.db.refresh(db_item)
+        return db_item
+    
+    def delete_item(self, item_id: int, user_id: int) -> bool:
+        """Delete an item."""
+        db_item = self.get_item(item_id)
+        if not db_item:
+            return False
+        
+        self.db.delete(db_item)
+        self.db.commit()
+        return True
+```
+
+### Database Model Template
+```python
+from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Boolean
+from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
+from app.db.base_class import Base
+
+class ModelName(Base):
+    __tablename__ = "table_name"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False, index=True)
+    description = Column(Text)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Foreign keys
+    user_id = Column(Integer, ForeignKey("users.id"))
+    
+    # Relationships
+    user = relationship("User", back_populates="items")
+```
+
+## Frontend Templates (Next.js)
+
+### Component Template
+```typescript
+// Component with TypeScript interfaces
+import { FC } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+
+interface ComponentProps {
+  title: string;
+  description?: string;
+  className?: string;
+}
+
+export const ComponentName: FC<ComponentProps> = ({
+  title,
+  description,
+  className
+}) => {
+  return (
+    <Card className={className}>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {description && <p>{description}</p>}
+      </CardContent>
+    </Card>
+  );
+};
+```
+
+### API Route Template
+```typescript
+// Next.js API route
+import { NextApiRequest, NextApiResponse } from 'next';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
+
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse
+) {
+  const session = await getServerSession(req, res, authOptions);
+  
+  if (!session) {
+    return res.status(401).json({ message: 'Unauthorized' });
+  }
+  
+  switch (req.method) {
+    case 'GET':
+      return handleGet(req, res, session);
+    case 'POST':
+      return handlePost(req, res, session);
+    case 'PUT':
+      return handlePut(req, res, session);
+    case 'DELETE':
+      return handleDelete(req, res, session);
+    default:
+      res.setHeader('Allow', ['GET', 'POST', 'PUT', 'DELETE']);
+      res.status(405).end(`Method ${req.method} Not Allowed`);
+  }
+}
+
+async function handleGet(req: NextApiRequest, res: NextApiResponse, session: any) {
+  // Implementation
+}
+
+async function handlePost(req: NextApiRequest, res: NextApiResponse, session: any) {
+  // Implementation
+}
+```
+
+### Hook Template
+```typescript
+// Custom React hook
+import { useState, useEffect } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+
+interface UseModelOptions {
+  id?: string;
+  enabled?: boolean;
+}
+
+export function useModel(options: UseModelOptions = {}) {
+  const queryClient = useQueryClient();
+  
+  const query = useQuery({
+    queryKey: ['model', options.id],
+    queryFn: () => fetchModel(options.id),
+    enabled: options.enabled !== false && !!options.id,
+  });
+  
+  const mutation = useMutation({
+    mutationFn: updateModel,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['model'] });
+    },
+  });
+  
+  return {
+    data: query.data,
+    isLoading: query.isLoading,
+    error: query.error,
+    update: mutation.mutate,
+    isUpdating: mutation.isPending,
+  };
+}
+```
+
+### Form Template
+```typescript
+// React Hook Form with validation
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+
+const formSchema = z.object({
+  name: z.string().min(2, 'Name must be at least 2 characters'),
+  email: z.string().email('Invalid email address'),
+  age: z.number().min(18, 'Must be at least 18 years old'),
+});
+
+type FormData = z.infer<typeof formSchema>;
+
+export function FormComponent() {
+  const form = useForm<FormData>({
+    resolver: zodResolver(formSchema),
+    defaultValues: {
+      name: '',
+      email: '',
+      age: 18,
+    },
+  });
+  
+  const onSubmit = (data: FormData) => {
+    console.log(data);
+  };
+  
+  return (
+    <form onSubmit={form.handleSubmit(onSubmit)}>
+      {/* Form fields */}
+    </form>
+  );
+}
+```
+
+## Configuration Templates
+
+### Environment Variables
+```bash
+# .env.example
+# Database
+DATABASE_URL=postgresql://user@localhost:5432/eventticketing
+
+# JWT
+SECRET_KEY=your-secret-key-here
+ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=30
+
+# Redis
+REDIS_URL=redis://localhost:6379
+
+# Payment
+STRIPE_SECRET_KEY=sk_test_your_stripe_key
+STRIPE_WEBHOOK_SECRET=whsec_your_webhook_secret
+
+# Email
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your-email@gmail.com
+SMTP_PASSWORD=your-app-password
+
+# Frontend
+NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_your_stripe_publishable_key
+```
+
+### Docker Compose Template
+```yaml
+# docker-compose.dev.yml
+version: '3.8'
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://user@db:5432/eventticketing
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - db
+      - redis
+    volumes:
+      - ./backend:/app
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+
+  db:
+    image: postgres:15
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=""
+      - POSTGRES_DB=eventticketing
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+volumes:
+  postgres_data:
+```
+
+## Testing Templates
+
+### Unit Test Template (Python)
+```python
+import pytest
+from sqlalchemy.orm import Session
+from app.services import ModelService
+from app.models import ModelName
+
+class TestModelService:
+    def test_create_item(self, db: Session):
+        service = ModelService(db)
+        item_data = {"name": "Test Item", "description": "Test Description"}
+        result = service.create_item(item_data, user_id=1)
+        
+        assert result.name == "Test Item"
+        assert result.description == "Test Description"
+        assert result.id is not None
+    
+    def test_get_item_not_found(self, db: Session):
+        service = ModelService(db)
+        result = service.get_item(999)
+        assert result is None
+```
+
+### Unit Test Template (TypeScript)
+```typescript
+import { render, screen, waitFor } from '@testing-library/react';
+import { ComponentName } from '@/components/ComponentName';
+
+describe('ComponentName', () => {
+  it('renders correctly', () => {
+    render(<ComponentName title="Test Title" description="Test Description" />);
+    
+    expect(screen.getByText('Test Title')).toBeInTheDocument();
+    expect(screen.getByText('Test Description')).toBeInTheDocument();
+  });
+  
+  it('handles optional props', () => {
+    render(<ComponentName title="Test Title" />);
+    
+    expect(screen.getByText('Test Title')).toBeInTheDocument();
+    expect(screen.queryByText('Test Description')).not.toBeInTheDocument();
+  });
+});# Code Templates - EventTicketing Project
+
+## Overview
+This file contains reusable code templates and snippets for common patterns across the EventTicketing project.
+
+## Backend Templates (FastAPI)
+
+### API Endpoint Template
+```python
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+from typing import List
+
+from app.db.session import get_db
+from app.models import ModelName
+from app.schemas import ModelCreate, ModelResponse, ModelUpdate
+from app.services import ModelService
+
+router = APIRouter()
+
+@router.post("/", response_model=ModelResponse)
+async def create_item(
+    item: ModelCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+) -> ModelResponse:
+    """Create a new item."""
+    service = ModelService(db)
+    return service.create_item(item, current_user.id)
+
+@router.get("/{item_id}", response_model=ModelResponse)
+async def get_item(
+    item_id: int,
+    db: Session = Depends(get_db)
+) -> ModelResponse:
+    """Get item by ID."""
+    service = ModelService(db)
+    item = service.get_item(item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    return item
+
+@router.get("/", response_model=List[ModelResponse])
+async def get_items(
+    skip: int = 0,
+    limit: int = 100,
+    db: Session = Depends(get_db)
+) -> List[ModelResponse]:
+    """Get all items with pagination."""
+    service = ModelService(db)
+    return service.get_items(skip=skip, limit=limit)
+
+@router.put("/{item_id}", response_model=ModelResponse)
+async def update_item(
+    item_id: int,
+    item: ModelUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+) -> ModelResponse:
+    """Update an existing item."""
+    service = ModelService(db)
+    updated_item = service.update_item(item_id, item, current_user.id)
+    if not updated_item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    return updated_item
+
+@router.delete("/{item_id}")
+async def delete_item(
+    item_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+) -> dict:
+    """Delete an item."""
+    service = ModelService(db)
+    success = service.delete_item(item_id, current_user.id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Item not found")
+    return {"message": "Item deleted successfully"}
+```
+
+### Service Layer Template
+```python
+from typing import List, Optional
+from sqlalchemy.orm import Session
+from app.models import ModelName
+from app.schemas import ModelCreate, ModelUpdate
+
+class ModelService:
+    def __init__(self, db: Session):
+        self.db = db
+    
+    def create_item(self, item_data: ModelCreate, user_id: int) -> ModelName:
+        """Create a new item."""
+        db_item = ModelName(**item_data.dict(), owner_id=user_id)
+        self.db.add(db_item)
+        self.db.commit()
+        self.db.refresh(db_item)
+        return db_item
+    
+    def get_item(self, item_id: int) -> Optional[ModelName]:
+        """Get item by ID."""
+        return self.db.query(ModelName).filter(ModelName.id == item_id).first()
+    
+    def get_items(self, skip: int = 0, limit: int = 100) -> List[ModelName]:
+        """Get items with pagination."""
+        return self.db.query(ModelName).offset(skip).limit(limit).all()
+    
+    def update_item(self, item_id: int, item_data: ModelUpdate, user_id: int) -> Optional[ModelName]:
+        """Update an existing item."""
+        db_item = self.get_item(item_id)
+        if not db_item:
+            return None
+        
+        for field, value in item_data.dict(exclude_unset=True).items():
+            setattr(db_item, field, value)
+        
+        self.db.commit()
+        self.db.refresh(db_item)
+        return db_item
+    
+    def delete_item(self, item_id: int, user_id: int) -> bool:
+        """Delete an item."""
+        db_item = self.get_item(item_id)
+        if not db_item:
+            return False
+        
+        self.db.delete(db_item)
+        self.db.commit()
+        return True
+```
+
+### Database Model Template
+```python
+from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Boolean
+from sqlalchemy.orm import relationship
+from sqlalchemy.sql import func
+from app.db.base_class import Base
+
+class ModelName(Base):
+    __tablename__ = "table_name"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False, index=True)
+    description = Column(Text)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    
+    # Foreign keys
+    user_id = Column(Integer, ForeignKey("users.id"))
+    
+    # Relationships
+    user = relationship("User", back_populates="items")
+```
+
+## Frontend Templates (Next.js)
+
+### Component Template
+```typescript
+// Component with TypeScript interfaces
+import { FC } from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+
+interface ComponentProps {
+  title: string;
+  description?: string;
+  className?: string;
+}
+
+export const ComponentName: FC<ComponentProps> = ({
+  title,
+  description,
+  className
+}) => {
+  return (
+    <Card className={className}>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {description && <p>{description}</p>}
+      </CardContent>
+    </Card>
+  );
+};
+```
+
+### API Route Template
+```typescript
+// Next.js API route
+import { NextApiRequest, NextApiResponse } from 'next';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
+
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse
+) {
+  const session = await getServerSession(req, res, authOptions);
+  
+  if (!session) {
+    return res.status(401).json({ message: 'Unauthorized' });
+  }
+  
+  switch (req.method) {
+    case 'GET':
+      return handleGet(req, res, session);
+    case 'POST':
+      return handlePost(req, res, session);
+    case 'PUT':
+      return handlePut(req, res, session);
+    case 'DELETE':
+      return handleDelete(req, res, session);
+    default:
+      res.setHeader('Allow', ['GET', 'POST', 'PUT', 'DELETE']);
+      res.status(405).end(`Method ${req.method} Not Allowed`);
+  }
+}
+
+async function handleGet(req: NextApiRequest, res: NextApiResponse, session: any) {
+  // Implementation
+}
+
+async function handlePost(req: NextApiRequest, res: NextApiResponse, session: any) {
+  // Implementation
+}
+```
+
+### Hook Template
+```typescript
+// Custom React hook
+import { useState, useEffect } from 'react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+
+interface UseModelOptions {
+  id?: string;
+  enabled?: boolean;
+}
+
+export function useModel(options: UseModelOptions = {}) {
+  const queryClient = useQueryClient();
+  
+  const query = useQuery({
+    queryKey: ['model', options.id],
+    queryFn: () => fetchModel(options.id),
+    enabled: options.enabled !== false && !!options.id,
+  });
+  
+  const mutation = useMutation({
+    mutationFn: updateModel,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['model'] });
+    },
+  });
+  
+  return {
+    data: query.data,
+    isLoading: query.isLoading,
+    error: query.error,
+    update: mutation.mutate,
+    isUpdating: mutation.isPending,
+  };
+}
+```
+
+### Form Template
+```typescript
+// React Hook Form with validation
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+
+const formSchema = z.object({
+  name: z.string().min(2, 'Name must be at least 2 characters'),
+  email: z.string().email('Invalid email address'),
+  age: z.number().min(18, 'Must be at least 18 years old'),
+});
+
+type FormData = z.infer<typeof formSchema>;
+
+export function FormComponent() {
+  const form = useForm<FormData>({
+    resolver: zodResolver(formSchema),
+    defaultValues: {
+      name: '',
+      email: '',
+      age: 18,
+    },
+  });
+  
+  const onSubmit = (data: FormData) => {
+    console.log(data);
+  };
+  
+  return (
+    <form onSubmit={form.handleSubmit(onSubmit)}>
+      {/* Form fields */}
+    </form>
+  );
+}
+```
+
+## Configuration Templates
+
+### Environment Variables
+```bash
+# .env.example
+# Database
+DATABASE_URL=postgresql://user@localhost:5432/eventticketing
+
+# JWT
+SECRET_KEY=your-secret-key-here
+ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=30
+
+# Redis
+REDIS_URL=redis://localhost:6379
+
+# Payment
+STRIPE_SECRET_KEY=sk_test_your_stripe_key
+STRIPE_WEBHOOK_SECRET=whsec_your_webhook_secret
+
+# Email
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your-email@gmail.com
+SMTP_PASSWORD=your-app-password
+
+# Frontend
+NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_your_stripe_publishable_key
+```
+
+### Docker Compose Template
+```yaml
+# docker-compose.dev.yml
+version: '3.8'
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://user@db:5432/eventticketing
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - db
+      - redis
+    volumes:
+      - ./backend:/app
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+
+  db:
+    image: postgres:15
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=""
+      - POSTGRES_DB=eventticketing
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+volumes:
+  postgres_data:
+```
+
+## Testing Templates
+
+### Unit Test Template (Python)
+```python
+import pytest
+from sqlalchemy.orm import Session
+from app.services import ModelService
+from app.models import ModelName
+
+class TestModelService:
+    def test_create_item(self, db: Session):
+        service = ModelService(db)
+        item_data = {"name": "Test Item", "description": "Test Description"}
+        result = service.create_item(item_data, user_id=1)
+        
+        assert result.name == "Test Item"
+        assert result.description == "Test Description"
+        assert result.id is not None
+    
+    def test_get_item_not_found(self, db: Session):
+        service = ModelService(db)
+        result = service.get_item(999)
+        assert result is None
+```
+
+### Unit Test Template (TypeScript)
+```typescript
+import { render, screen, waitFor } from '@testing-library/react';
+import { ComponentName } from '@/components/ComponentName';
+
+describe('ComponentName', () => {
+  it('renders correctly', () => {
+    render(<ComponentName title="Test Title" description="Test Description" />);
+    
+    expect(screen.getByText('Test Title')).toBeInTheDocument();
+    expect(screen.getByText('Test Description')).toBeInTheDocument();
+  });
+  
+  it('handles optional props', () => {
+    render(<ComponentName title="Test Title" />);
+    
+    expect(screen.getByText('Test Title')).toBeInTheDocument();
+    expect(screen.queryByText('Test Description')).not.toBeInTheDocument();
+  });
+});

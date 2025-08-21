@@ -1,0 +1,111 @@
+# Deployment Configuration
+# This file defines deployment settings and environment configurations
+
+environments:
+  staging:
+    name: "staging"
+    url: "https://staging.eventtickets.example.com"
+    api_url: "https://staging-api.eventtickets.example.com"
+    branch: "develop"
+    protection_rules:
+      required_reviewers: 1
+      dismiss_stale_reviews: true
+      require_code_owner_reviews: false
+    deployment_settings:
+      auto_deploy: true
+      wait_timer: 0
+      rollback_on_failure: true
+    health_checks:
+      - url: "https://staging-api.eventtickets.example.com/health"
+        expected_status: 200
+        timeout: 30
+      - url: "https://staging.eventtickets.example.com"
+        expected_status: 200
+        timeout: 30
+
+  production:
+    name: "production"
+    url: "https://eventtickets.example.com"
+    api_url: "https://api.eventtickets.example.com"
+    branch: "main"
+    protection_rules:
+      required_reviewers: 2
+      dismiss_stale_reviews: true
+      require_code_owner_reviews: true
+      restrict_pushes: true
+    deployment_settings:
+      auto_deploy: false
+      wait_timer: 300  # 5 minutes
+      rollback_on_failure: true
+      backup_required: true
+    health_checks:
+      - url: "https://api.eventtickets.example.com/health"
+        expected_status: 200
+        timeout: 30
+      - url: "https://eventtickets.example.com"
+        expected_status: 200
+        timeout: 30
+    monitoring:
+      error_threshold: 5  # percentage
+      response_time_threshold: 2000  # milliseconds
+      alert_channels:
+        - email
+        - slack
+        - pagerduty
+
+# Docker configuration
+docker:
+  registry: "docker.io"
+  backend_image: "eventtickets-backend"
+  frontend_image: "eventtickets-frontend"
+  tags:
+    - "{{ .Branch }}-{{ .ShortSha }}"
+    - "{{ .Branch }}-latest"
+    - "latest"  # only for main branch
+
+# Database migration settings
+database:
+  migration_timeout: 300  # 5 minutes
+  backup_before_migration: true
+  rollback_on_failure: true
+  parallel_migrations: false
+
+# Security settings
+security:
+  vulnerability_scan: true
+  dependency_check: true
+  secret_scanning: true
+  code_scanning: true
+  allowed_vulnerabilities:
+    low: 10
+    medium: 5
+    high: 0
+    critical: 0
+
+# Performance thresholds
+performance:
+  lighthouse:
+    performance: 70
+    accessibility: 90
+    best_practices: 80
+    seo: 80
+  build_time_limit: 600  # 10 minutes
+  test_time_limit: 300   # 5 minutes
+
+# Notification settings
+notifications:
+  channels:
+    slack:
+      webhook_url_secret: "SLACK_WEBHOOK_URL"
+      channel: "#deployments"
+    email:
+      recipients:
+        - "team@eventtickets.example.com"
+        - "devops@eventtickets.example.com"
+  events:
+    - deployment_started
+    - deployment_completed
+    - deployment_failed
+    - rollback_initiated
+    - rollback_completed
+    - security_vulnerability_found

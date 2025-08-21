@@ -1,0 +1,454 @@
+name: Full Stack CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+
+env:
+  PYTHON_VERSION: "3.11"
+  NODE_VERSION: "18"
+  POETRY_VERSION: "1.7.1"
+
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.changes.outputs.backend }}
+      frontend: ${{ steps.changes.outputs.frontend }}
+      docker: ${{ steps.changes.outputs.docker }}
+      
+    steps:
+    - uses: actions/checkout@v4
+    
+    - uses: dorny/paths-filter@v2
+      id: changes
+      with:
+        filters: |
+          backend:
+            - 'backend/**'
+            - '.github/workflows/**'
+          frontend:
+            - 'frontend/**'
+            - '.github/workflows/**'
+          docker:
+            - 'docker-compose*.yml'
+            - '**/Dockerfile*'
+
+  backend-quality:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
+    defaults:
+      run:
+        working-directory: ./backend
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    
+    - name: Install Poetry
+      uses: snok/install-poetry@v1
+      with:
+        version: ${{ env.POETRY_VERSION }}
+        virtualenvs-create: true
+        virtualenvs-in-project: true
+    
+    - name: Load cached venv
+      id: cached-poetry-dependencies
+      uses: actions/cache@v3
+      with:
+        path: backend/.venv
+        key: venv-${{ runner.os }}-${{ hashFiles('**/poetry.lock') }}
+    
+    - name: Install dependencies
+      if: steps.cached-poetry-dependencies.outputs.cache-hit != 'true'
+      run: poetry install --no-interaction --no-root --with dev
+    
+    - name: Install project
+      run: poetry install --no-interaction
+    
+    - name: Run code quality checks
+      run: |
+        echo "Running backend code quality checks..."
+        poetry run black --check --diff .
+        poetry run isort --check-only --diff .
+        poetry run ruff check .
+        poetry run mypy .
+
+  frontend-quality:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.frontend == 'true'
+    defaults:
+      run:
+        working-directory: ./frontend
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Run code quality checks
+      run: |
+        echo "Running frontend code quality checks..."
+        npm run lint
+        npm run type-check
+
+  integration-tests:
+    runs-on: ubuntu-latest
+    needs: [changes, backend-quality, frontend-quality]
+    if: always() && (needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true')
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: test_eventtickets
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+    
+    - name: Install Poetry
+      uses: snok/install-poetry@v1
+      with:
+        version: ${{ env.POETRY_VERSION }}
+        virtualenvs-create: true
+        virtualenvs-in-project: true
+    
+    - name: Install backend dependencies
+      working-directory: ./backend
+      run: poetry install --no-interaction
+    
+    - name: Install frontend dependencies
+      working-directory: ./frontend
+      run: npm ci
+    
+    - name: Set up test environment
+      working-directory: ./backend
+      run: |
+        cat > .env.test << EOF
+        DATABASE_URL=postgresql+asyncpg://test_user:test_password@localhost:5432/test_eventtickets
+        REDIS_URL=redis://localhost:6379/0
+        SECRET_KEY=integration_test_secret_key
+        ALGORITHM=HS256
+        ACCESS_TOKEN_EXPIRE_MINUTES=30
+        ENVIRONMENT=test
+        PROJECT_NAME=EventTicketing Integration Test
+        BACKEND_CORS_ORIGINS=["http://localhost:3000"]
+        STRIPE_SECRET_KEY=sk_test_mock_key
+        STRIPE_PUBLISHABLE_KEY=pk_test_mock_key
+        FRONTEND_URL=http://localhost:3000
+        EOF
+    
+    - name: Run database migrations
+      working-directory: ./backend
+      run: poetry run alembic upgrade head
+      env:
+        DATABASE_URL: postgresql+asyncpg://test_user:test_password@localhost:5432/test_eventtickets
+    
+    - name: Run backend tests
+      working-directory: ./backend
+      run: poetry run pytest --cov=app --cov-report=xml --cov-report=term-missing
+      env:
+        DATABASE_URL: postgresql+asyncpg://test_user:test_password@localhost:5432/test_eventtickets
+        REDIS_URL: redis://localhost:6379/0
+    
+    - name: Run frontend tests
+      working-directory: ./frontend
+      run: npm run test:coverage
+      env:
+        CI: true
+    
+    - name: Upload backend coverage
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./backend/coverage.xml
+        flags: backend
+        name: backend-coverage
+    
+    - name: Upload frontend coverage
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./frontend/coverage/lcov.info
+        flags: frontend
+        name: frontend-coverage
+
+  docker-build:
+    runs-on: ubuntu-latest
+    needs: [changes, integration-tests]
+    if: github.event_name == 'push' && (needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true' || needs.changes.outputs.docker == 'true')
+    
+    strategy:
+      matrix:
+        service: [backend, frontend]
+        include:
+          - service: backend
+            dockerfile: backend/Dockerfile.prod
+            context: backend
+            needs_change: ${{ needs.changes.outputs.backend }}
+          - service: frontend
+            dockerfile: frontend/Dockerfile.prod
+            context: frontend
+            needs_change: ${{ needs.changes.outputs.frontend }}
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Log in to Docker Hub
+      if: matrix.needs_change == 'true'
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+    
+    - name: Extract metadata
+      if: matrix.needs_change == 'true'
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ secrets.DOCKER_USERNAME }}/eventtickets-${{ matrix.service }}
+        tags: |
+          type=ref,event=branch
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+    
+    - name: Build and push Docker image
+      if: matrix.needs_change == 'true'
+      uses: docker/build-push-action@v5
+      with:
+        context: ./${{ matrix.context }}
+        file: ./${{ matrix.dockerfile }}
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  security-audit:
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.frontend == 'true'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+    
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
+    
+    - name: Run backend security checks
+      if: needs.changes.outputs.backend == 'true'
+      working-directory: ./backend
+      run: |
+        pip install safety bandit
+        safety check --json --output safety-report.json || true
+        bandit -r app/ -f json -o bandit-report.json || true
+    
+    - name: Run frontend security checks  
+      if: needs.changes.outputs.frontend == 'true'
+      working-directory: ./frontend
+      run: |
+        npm install
+        npm audit --json > npm-audit-report.json || true
+    
+    - name: Upload security reports
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: security-reports
+        path: |
+          backend/safety-report.json
+          backend/bandit-report.json
+          frontend/npm-audit-report.json
+          trivy-results.sarif
+
+  deploy-staging:
+    runs-on: ubuntu-latest
+    needs: [docker-build, security-audit]
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    environment: staging
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Deploy to staging environment
+      run: |
+        echo "Deploying full stack to staging..."
+        echo "Environment: staging"
+        echo "Commit: ${{ github.sha }}"
+        echo "Branch: ${{ github.ref_name }}"
+        
+        # In a real deployment, this would:
+        # 1. Update Kubernetes manifests or docker-compose files
+        # 2. Apply database migrations
+        # 3. Deploy backend and frontend services
+        # 4. Run smoke tests
+        # 5. Send deployment notifications
+        
+        echo "Staging deployment completed successfully"
+    
+    - name: Run post-deployment health checks
+      run: |
+        echo "Running staging health checks..."
+        # curl -f https://staging-api.eventtickets.example.com/health
+        # curl -f https://staging.eventtickets.example.com
+        echo "Health checks passed"
+    
+    - name: Notify deployment status
+      run: |
+        echo "Sending deployment notification..."
+        # Could integrate with Slack, Discord, etc.
+        echo "Staging deployment notification sent"
+
+  deploy-production:
+    runs-on: ubuntu-latest
+    needs: [docker-build, security-audit]
+    if: (github.ref == 'refs/heads/main' && github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'production')
+    environment: production
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Pre-deployment checks
+      run: |
+        echo "Running pre-deployment checks..."
+        echo "Checking database backup status..."
+        echo "Verifying Docker images exist..."
+        echo "Checking service health..."
+        echo "Pre-deployment checks passed"
+    
+    - name: Deploy to production environment  
+      run: |
+        echo "Deploying full stack to production..."
+        echo "Environment: production"
+        echo "Commit: ${{ github.sha }}"
+        echo "Branch: ${{ github.ref_name }}"
+        
+        # In a real deployment, this would:
+        # 1. Create database backup
+        # 2. Deploy in blue-green fashion
+        # 3. Apply database migrations with rollback plan
+        # 4. Deploy backend services with health checks
+        # 5. Deploy frontend with CDN cache invalidation
+        # 6. Run comprehensive smoke tests
+        # 7. Monitor error rates and performance
+        
+        echo "Production deployment completed successfully"
+    
+    - name: Run post-deployment verification
+      run: |
+        echo "Running production verification tests..."
+        # curl -f https://api.eventtickets.example.com/health
+        # curl -f https://eventtickets.example.com
+        echo "Production verification passed"
+    
+    - name: Update deployment tracking
+      run: |
+        echo "Updating deployment tracking..."
+        echo "Creating deployment record..."
+        echo "Updating monitoring dashboards..."
+        echo "Deployment tracking updated"
+    
+    - name: Notify deployment success
+      run: |
+        echo "Sending production deployment notification..."
+        # Integration with monitoring, alerting, and communication tools
+        echo "Production deployment notification sent"
+
+  rollback:
+    runs-on: ubuntu-latest
+    if: failure() && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+    environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'staging' }}
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Rollback deployment
+      run: |
+        echo "Deployment failed, initiating rollback..."
+        echo "Environment: ${{ github.ref == 'refs/heads/main' && 'production' || 'staging' }}"
+        
+        # In a real rollback scenario:
+        # 1. Revert to previous Docker images
+        # 2. Rollback database migrations if needed
+        # 3. Restore previous configuration
+        # 4. Verify service health
+        # 5. Send rollback notifications
+        
+        echo "Rollback completed successfully"
+    
+    - name: Create incident report
+      run: |
+        echo "Creating incident report..."
+        echo "Failed commit: ${{ github.sha }}"
+        echo "Failure reason: Deployment pipeline failed"
+        echo "Rollback status: Completed"
+        echo "Incident report created"

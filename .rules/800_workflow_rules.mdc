@@ -1,0 +1,293 @@
+---
+alwaysApply: true
+---
+
+# Workflow Definitions - EventTicketing Development Process
+
+## Development Workflow Overview
+
+### Sprint Planning Process
+1. **Backlog Refinement**: Review and prioritize tasks from `.tasks/backlog.md`
+2. **Sprint Planning**: Move selected tasks to `.tasks/sprint_N/` directory
+3. **TDD Specifications**: Create detailed test cases in `spec_step_X.md`
+4. **Story Points**: Estimate effort using Fibonacci sequence (1, 2, 3, 5, 8, 13)
+5. **Definition of Done**: All tests pass, code reviewed, documentation updated
+
+### Daily Development Cycle
+```mermaid
+graph TD
+    A[Start Day] --> B[Review TDD Specs]
+    B --> C[Write Failing Tests]
+    C --> D[Implement Code]
+    D --> E[Make Tests Pass]
+    E --> F[Refactor]
+    F --> G[Commit & Push]
+    G --> H[Code Review]
+    H --> I{Approved?}
+    I -->|Yes| J[Merge to Main]
+    I -->|No| K[Address Feedback]
+    K --> D
+```
+
+### Git Workflow
+- **Branch Naming**: `feature/TICKET-ID-description` or `bugfix/TICKET-ID-description`
+- **Commit Messages**: `type(scope): description`
+  - Types: feat, fix, docs, style, refactor, test, chore
+- **Pull Request**: Must include tests, documentation, and pass CI
+- **Merge Strategy**: Squash and merge with descriptive commit message
+
+### Code Review Process
+1. **Self-Review**: Author reviews their own PR first
+2. **Peer Review**: At least one team member review required
+3. **Automated Checks**: CI/CD pipeline must pass
+4. **Testing**: All new code must have tests
+5. **Documentation**: Update relevant docs for API changes
+
+## Quality Gates
+
+### Pre-commit Hooks
+- **Linting**: ESLint (frontend) and Flake8 (backend)
+- **Type Checking**: TypeScript and mypy
+- **Tests**: Unit tests must pass
+- **Security**: Scan for vulnerabilities
+
+### CI/CD Pipeline
+```yaml
+# GitHub Actions workflow
+name: CI/CD Pipeline
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+      - name: Install dependencies
+        run: npm ci
+      - name: Run tests
+        run: npm test
+      - name: Run linting
+        run: npm run lint
+```
+
+### Deployment Strategy
+- **Staging**: Automatic deployment from develop branch
+- **Production**: Manual deployment after approval
+- **Rollback**: Quick rollback capability via previous Docker images
+- **Monitoring**: Health checks and performance metrics
+
+## Testing Strategy
+
+### Test Pyramid
+- **Unit Tests**: 70% (Fast, isolated)
+- **Integration Tests**: 20% (API endpoints, database)
+- **E2E Tests**: 10% (Critical user flows)
+
+### Test Data Management
+- **Fixtures**: Use factory pattern for test data
+- **Database**: Use test database with migrations
+- **Mocking**: Mock external services (payment, email)
+- **Cleanup**: Ensure test isolation
+
+## Documentation Workflow
+
+### API Documentation
+- **OpenAPI**: Auto-generated from FastAPI
+- **Examples**: Request/response examples for each endpoint
+- **Updates**: Documentation updated with every API change
+
+### Code Documentation
+- **Docstrings**: Required for all public methods
+- **README**: Updated with setup instructions
+- **Architecture**: Document major decisions in ADRs
+
+### User Documentation
+- **Onboarding**: Step-by-step setup guide
+- **Features**: User-facing feature documentation
+- **Troubleshooting**: Common issues and solutions
+
+## Release Management
+
+### Versioning Strategy
+- **Semantic Versioning**: MAJOR.MINOR.PATCH
+- **Release Notes**: Automated generation from commits
+- **Changelog**: Maintain detailed changelog
+
+### Release Process
+1. **Feature Freeze**: No new features, only bug fixes
+2. **Release Branch**: Create release branch from develop
+3. **Testing**: Full regression testing
+4. **Documentation**: Update version and release notes
+5. **Deployment**: Deploy to production
+6. **Post-Release**: Monitor for issues
+
+## Monitoring & Alerting
+
+### Application Monitoring
+- **Health Checks**: Endpoint availability
+- **Performance**: Response times and throughput
+- **Errors**: Error rates and stack traces
+- **Business Metrics**: Ticket sales, user registrations
+
+### Alert Thresholds
+- **Error Rate**: > 1% of requests
+- **Response Time**: > 2 seconds for 95th percentile
+- **Database**: Connection pool exhaustion
+- **Memory**: > 80% usage
+
+### Incident Response
+1. **Detection**: Automated alerts
+2. **Assessment**: Determine severity and impact
+3. **Communication**: Notify stakeholders
+4. **Resolution**: Fix and deploy
+5. **Post-mortem**: Document lessons learned# Workflow Definitions - EventTicketing Development Process
+
+## Development Workflow Overview
+
+### Sprint Planning Process
+1. **Backlog Refinement**: Review and prioritize tasks from `.tasks/backlog.md`
+2. **Sprint Planning**: Move selected tasks to `.tasks/sprint_N/` directory
+3. **TDD Specifications**: Create detailed test cases in `spec_step_X.md`
+4. **Story Points**: Estimate effort using Fibonacci sequence (1, 2, 3, 5, 8, 13)
+5. **Definition of Done**: All tests pass, code reviewed, documentation updated
+
+### Daily Development Cycle
+```mermaid
+graph TD
+    A[Start Day] --> B[Review TDD Specs]
+    B --> C[Write Failing Tests]
+    C --> D[Implement Code]
+    D --> E[Make Tests Pass]
+    E --> F[Refactor]
+    F --> G[Commit & Push]
+    G --> H[Code Review]
+    H --> I{Approved?}
+    I -->|Yes| J[Merge to Main]
+    I -->|No| K[Address Feedback]
+    K --> D
+```
+
+### Git Workflow
+- **Branch Naming**: `feature/TICKET-ID-description` or `bugfix/TICKET-ID-description`
+- **Commit Messages**: `type(scope): description`
+  - Types: feat, fix, docs, style, refactor, test, chore
+- **Pull Request**: Must include tests, documentation, and pass CI
+- **Merge Strategy**: Squash and merge with descriptive commit message
+
+### Code Review Process
+1. **Self-Review**: Author reviews their own PR first
+2. **Peer Review**: At least one team member review required
+3. **Automated Checks**: CI/CD pipeline must pass
+4. **Testing**: All new code must have tests
+5. **Documentation**: Update relevant docs for API changes
+
+## Quality Gates
+
+### Pre-commit Hooks
+- **Linting**: ESLint (frontend) and Flake8 (backend)
+- **Type Checking**: TypeScript and mypy
+- **Tests**: Unit tests must pass
+- **Security**: Scan for vulnerabilities
+
+### CI/CD Pipeline
+```yaml
+# GitHub Actions workflow
+name: CI/CD Pipeline
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+      - name: Install dependencies
+        run: npm ci
+      - name: Run tests
+        run: npm test
+      - name: Run linting
+        run: npm run lint
+```
+
+### Deployment Strategy
+- **Staging**: Automatic deployment from develop branch
+- **Production**: Manual deployment after approval
+- **Rollback**: Quick rollback capability via previous Docker images
+- **Monitoring**: Health checks and performance metrics
+
+## Testing Strategy
+
+### Test Pyramid
+- **Unit Tests**: 70% (Fast, isolated)
+- **Integration Tests**: 20% (API endpoints, database)
+- **E2E Tests**: 10% (Critical user flows)
+
+### Test Data Management
+- **Fixtures**: Use factory pattern for test data
+- **Database**: Use test database with migrations
+- **Mocking**: Mock external services (payment, email)
+- **Cleanup**: Ensure test isolation
+
+## Documentation Workflow
+
+### API Documentation
+- **OpenAPI**: Auto-generated from FastAPI
+- **Examples**: Request/response examples for each endpoint
+- **Updates**: Documentation updated with every API change
+
+### Code Documentation
+- **Docstrings**: Required for all public methods
+- **README**: Updated with setup instructions
+- **Architecture**: Document major decisions in ADRs
+
+### User Documentation
+- **Onboarding**: Step-by-step setup guide
+- **Features**: User-facing feature documentation
+- **Troubleshooting**: Common issues and solutions
+
+## Release Management
+
+### Versioning Strategy
+- **Semantic Versioning**: MAJOR.MINOR.PATCH
+- **Release Notes**: Automated generation from commits
+- **Changelog**: Maintain detailed changelog
+
+### Release Process
+1. **Feature Freeze**: No new features, only bug fixes
+2. **Release Branch**: Create release branch from develop
+3. **Testing**: Full regression testing
+4. **Documentation**: Update version and release notes
+5. **Deployment**: Deploy to production
+6. **Post-Release**: Monitor for issues
+
+## Monitoring & Alerting
+
+### Application Monitoring
+- **Health Checks**: Endpoint availability
+- **Performance**: Response times and throughput
+- **Errors**: Error rates and stack traces
+- **Business Metrics**: Ticket sales, user registrations
+
+### Alert Thresholds
+- **Error Rate**: > 1% of requests
+- **Response Time**: > 2 seconds for 95th percentile
+- **Database**: Connection pool exhaustion
+- **Memory**: > 80% usage
+
+### Incident Response
+1. **Detection**: Automated alerts
+2. **Assessment**: Determine severity and impact
+3. **Communication**: Notify stakeholders
+4. **Resolution**: Fix and deploy
+5. **Post-mortem**: Document lessons learned

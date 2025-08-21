@@ -1,0 +1,973 @@
+openapi: 3.0.3
+info:
+  title: EventTicketing API
+  description: |
+    # EventTicketing Platform API
+
+    A comprehensive event management and ticketing platform API built with FastAPI.
+    
+    ## Features
+    - **Event Management**: Create, manage, and publish events with advanced features
+    - **Recurring Events**: Flexible scheduling patterns for repeating events
+    - **Ticket Sales**: Multiple ticket types with dynamic pricing and promotions
+    - **Waitlist Management**: Priority-based waitlists with automatic notifications
+    - **Check-in System**: QR code-based attendee check-in with real-time tracking
+    - **User Management**: Role-based access control and user profiles
+    - **Analytics**: Comprehensive reporting and real-time analytics
+    - **Real-time Features**: WebSocket connections for live updates
+    - **Mobile Support**: PWA with offline capabilities
+
+    ## Authentication
+    The API uses JWT (JSON Web Tokens) for authentication. Include the token in the Authorization header:
+    ```
+    Authorization: Bearer <your-jwt-token>
+    ```
+
+    ## Rate Limiting
+    API requests are rate limited to 100 requests per minute per IP address.
+    Rate limit information is included in response headers:
+    - `X-RateLimit-Limit`: Request limit per window
+    - `X-RateLimit-Remaining`: Remaining requests in current window
+    - `X-RateLimit-Reset`: Time when the rate limit resets
+
+    ## Error Handling
+    The API uses standard HTTP status codes and returns error details in JSON format:
+    ```json
+    {
+      "detail": "Error description",
+      "error_code": "SPECIFIC_ERROR_CODE",
+      "timestamp": "2025-08-20T10:30:00Z"
+    }
+    ```
+
+    ## Webhooks
+    EventTicketing supports webhooks for real-time event notifications:
+    - Order completed
+    - Ticket purchased
+    - Event published
+    - Waitlist notification sent
+    - Check-in completed
+
+  version: 1.0.0
+  contact:
+    name: EventTicketing API Support
+    url: https://eventticket.example.com/support
+    email: support@eventticket.example.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: https://api.eventticket.example.com/api/v1
+    description: Production server
+  - url: https://staging-api.eventticket.example.com/api/v1
+    description: Staging server
+  - url: http://localhost:8000/api/v1
+    description: Development server
+
+security:
+  - BearerAuth: []
+
+paths:
+  # Authentication Endpoints
+  /auth/login:
+    post:
+      tags:
+        - Authentication
+      summary: User login
+      description: Authenticate user and receive JWT token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: user@example.com
+                password:
+                  type: string
+                  format: password
+                  example: securepassword123
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token:
+                    type: string
+                    example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+                  token_type:
+                    type: string
+                    example: bearer
+                  expires_in:
+                    type: integer
+                    example: 3600
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/register:
+    post:
+      tags:
+        - Authentication
+      summary: User registration
+      description: Register a new user account
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+                - full_name
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: newuser@example.com
+                password:
+                  type: string
+                  format: password
+                  minLength: 8
+                  example: newpassword123
+                full_name:
+                  type: string
+                  example: John Doe
+                phone:
+                  type: string
+                  example: "+1234567890"
+      responses:
+        '201':
+          description: Registration successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          description: Registration failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # Event Management Endpoints
+  /events:
+    get:
+      tags:
+        - Events
+      summary: List events
+      description: Retrieve a list of events with optional filtering
+      parameters:
+        - name: skip
+          in: query
+          description: Number of events to skip
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: limit
+          in: query
+          description: Maximum number of events to return
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: search
+          in: query
+          description: Search events by title or description
+          schema:
+            type: string
+        - name: category_id
+          in: query
+          description: Filter by category ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Event'
+
+    post:
+      tags:
+        - Events
+      summary: Create event
+      description: Create a new event
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventCreate'
+      responses:
+        '201':
+          description: Event created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Event'
+        '400':
+          description: Invalid event data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /events/public:
+    get:
+      tags:
+        - Events
+      summary: List public events
+      description: Retrieve public events (no authentication required)
+      security: []
+      parameters:
+        - name: skip
+          in: query
+          schema:
+            type: integer
+            default: 0
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of public events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Event'
+
+  /events/{event_id}:
+    get:
+      tags:
+        - Events
+      summary: Get event details
+      description: Retrieve details of a specific event
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Event details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Event'
+        '404':
+          description: Event not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    put:
+      tags:
+        - Events
+      summary: Update event
+      description: Update an existing event
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventUpdate'
+      responses:
+        '200':
+          description: Event updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Event'
+
+    delete:
+      tags:
+        - Events
+      summary: Delete event
+      description: Delete an event
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Event deleted successfully
+        '404':
+          description: Event not found
+
+  # Recurring Events
+  /recurring/series:
+    get:
+      tags:
+        - Recurring Events
+      summary: List event series
+      description: Get all recurring event series for the user
+      responses:
+        '200':
+          description: List of event series
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EventSeries'
+
+    post:
+      tags:
+        - Recurring Events
+      summary: Create event series
+      description: Create a new recurring event series
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventSeriesCreate'
+      responses:
+        '201':
+          description: Event series created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventSeries'
+
+  # Waitlist Management
+  /events/{event_id}/waitlist:
+    post:
+      tags:
+        - Waitlist
+      summary: Create event waitlist
+      description: Enable waitlist for an event
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventWaitlistCreate'
+      responses:
+        '201':
+          description: Waitlist created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventWaitlist'
+
+  /events/{event_id}/waitlist/join:
+    post:
+      tags:
+        - Waitlist
+      summary: Join waitlist
+      description: Join the waitlist for an event
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WaitlistEntryCreate'
+      responses:
+        '201':
+          description: Successfully joined waitlist
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WaitlistEntry'
+
+  # Check-in System
+  /checkin/scan:
+    post:
+      tags:
+        - Check-in
+      summary: Scan QR code
+      description: Scan a QR code for event check-in
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScanRequest'
+      responses:
+        '200':
+          description: Scan result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanResponse'
+
+  /checkin/sessions:
+    post:
+      tags:
+        - Check-in
+      summary: Start scan session
+      description: Start a new scanning session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScanSessionStart'
+      responses:
+        '201':
+          description: Session started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanSession'
+
+  # WebSocket Endpoints
+  /ws/events/{event_id}:
+    get:
+      tags:
+        - WebSocket
+      summary: Event updates WebSocket
+      description: |
+        WebSocket connection for real-time event updates.
+        
+        **Connection URL**: `wss://api.eventticket.example.com/api/v1/ws/events/{event_id}`
+        
+        **Authentication**: Include JWT token as query parameter: `?token=your_jwt_token`
+        
+        **Message Types**:
+        - `ticket_sold`: New ticket purchased
+        - `waitlist_joined`: User joined waitlist
+        - `check_in`: Attendee checked in
+        - `event_updated`: Event details changed
+      parameters:
+        - name: event_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: token
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '101':
+          description: WebSocket connection established
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    # Core Models
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          example: usr_123456789
+        email:
+          type: string
+          format: email
+          example: user@example.com
+        full_name:
+          type: string
+          example: John Doe
+        phone:
+          type: string
+          example: "+1234567890"
+        is_active:
+          type: boolean
+          example: true
+        created_at:
+          type: string
+          format: date-time
+          example: "2025-08-20T10:30:00Z"
+
+    Event:
+      type: object
+      properties:
+        id:
+          type: string
+          example: evt_123456789
+        title:
+          type: string
+          example: "Summer Music Festival"
+        description:
+          type: string
+          example: "A weekend of amazing music and entertainment"
+        location:
+          type: string
+          example: "Central Park, New York"
+        start_time:
+          type: string
+          format: date-time
+          example: "2025-09-15T18:00:00Z"
+        end_time:
+          type: string
+          format: date-time
+          example: "2025-09-15T23:00:00Z"
+        price:
+          type: number
+          format: float
+          example: 75.00
+        currency:
+          type: string
+          example: "USD"
+        is_free:
+          type: boolean
+          example: false
+        status:
+          type: string
+          enum: [draft, published, cancelled, completed]
+          example: published
+        capacity:
+          type: integer
+          example: 1000
+        tickets_sold:
+          type: integer
+          example: 750
+        created_at:
+          type: string
+          format: date-time
+
+    EventCreate:
+      type: object
+      required:
+        - title
+        - start_time
+        - end_time
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description:
+          type: string
+        location:
+          type: string
+        start_time:
+          type: string
+          format: date-time
+        end_time:
+          type: string
+          format: date-time
+        price:
+          type: number
+          format: float
+          minimum: 0
+        currency:
+          type: string
+          default: "USD"
+        is_free:
+          type: boolean
+          default: false
+        capacity:
+          type: integer
+          minimum: 1
+
+    EventUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 255
+        description:
+          type: string
+        location:
+          type: string
+        start_time:
+          type: string
+          format: date-time
+        end_time:
+          type: string
+          format: date-time
+        price:
+          type: number
+          format: float
+          minimum: 0
+        is_free:
+          type: boolean
+        capacity:
+          type: integer
+          minimum: 1
+
+    # Recurring Events
+    EventSeries:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 123
+        uuid:
+          type: string
+          format: uuid
+        title:
+          type: string
+          example: "Weekly Yoga Classes"
+        description:
+          type: string
+        series_start_date:
+          type: string
+          format: date
+        series_end_date:
+          type: string
+          format: date
+        total_events:
+          type: integer
+          example: 52
+        upcoming_events:
+          type: integer
+          example: 12
+        recurrence_pattern:
+          $ref: '#/components/schemas/RecurrencePattern'
+
+    EventSeriesCreate:
+      type: object
+      required:
+        - title
+        - series_start_date
+        - recurrence_pattern
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        series_start_date:
+          type: string
+          format: date
+        series_end_date:
+          type: string
+          format: date
+        default_start_time:
+          type: string
+          format: time
+        default_end_time:
+          type: string
+          format: time
+        auto_publish:
+          type: boolean
+          default: false
+        recurrence_pattern:
+          $ref: '#/components/schemas/RecurrencePatternCreate'
+
+    RecurrencePattern:
+      type: object
+      properties:
+        id:
+          type: integer
+        recurrence_type:
+          type: string
+          enum: [none, daily, weekly, monthly, yearly, custom]
+        interval_count:
+          type: integer
+          minimum: 1
+        weekdays:
+          type: array
+          items:
+            type: integer
+            minimum: 0
+            maximum: 6
+        end_date:
+          type: string
+          format: date
+        occurrence_count:
+          type: integer
+
+    RecurrencePatternCreate:
+      type: object
+      required:
+        - recurrence_type
+      properties:
+        recurrence_type:
+          type: string
+          enum: [none, daily, weekly, monthly, yearly, custom]
+        interval_count:
+          type: integer
+          minimum: 1
+          default: 1
+        weekdays:
+          type: array
+          items:
+            type: integer
+            minimum: 0
+            maximum: 6
+        end_date:
+          type: string
+          format: date
+        occurrence_count:
+          type: integer
+          minimum: 1
+
+    # Waitlist
+    EventWaitlist:
+      type: object
+      properties:
+        id:
+          type: integer
+        uuid:
+          type: string
+          format: uuid
+        event_id:
+          type: string
+        is_enabled:
+          type: boolean
+        max_capacity:
+          type: integer
+        total_entries:
+          type: integer
+        active_entries:
+          type: integer
+        conversion_rate:
+          type: number
+          format: float
+
+    EventWaitlistCreate:
+      type: object
+      required:
+        - event_id
+      properties:
+        event_id:
+          type: string
+        is_enabled:
+          type: boolean
+          default: true
+        max_capacity:
+          type: integer
+          minimum: 1
+        auto_notify:
+          type: boolean
+          default: true
+        notification_window_hours:
+          type: integer
+          minimum: 1
+          maximum: 168
+          default: 24
+
+    WaitlistEntry:
+      type: object
+      properties:
+        id:
+          type: integer
+        uuid:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+        event_id:
+          type: string
+        position:
+          type: integer
+        status:
+          type: string
+          enum: [active, notified, converted, expired, cancelled]
+        joined_at:
+          type: string
+          format: date-time
+        notified_at:
+          type: string
+          format: date-time
+        expires_at:
+          type: string
+          format: date-time
+
+    WaitlistEntryCreate:
+      type: object
+      required:
+        - event_id
+      properties:
+        event_id:
+          type: string
+        requested_tickets:
+          type: integer
+          minimum: 1
+          maximum: 10
+          default: 1
+        max_price:
+          type: number
+          format: float
+          minimum: 0
+        email_notifications:
+          type: boolean
+          default: true
+        sms_notifications:
+          type: boolean
+          default: false
+
+    # Check-in System
+    ScanRequest:
+      type: object
+      required:
+        - qr_code_data
+        - scanner_device_id
+      properties:
+        qr_code_data:
+          type: string
+          minLength: 1
+        scanner_device_id:
+          type: string
+          minLength: 1
+        check_in_location:
+          type: string
+        latitude:
+          type: number
+          format: float
+          minimum: -90
+          maximum: 90
+        longitude:
+          type: number
+          format: float
+          minimum: -180
+          maximum: 180
+        force_check_in:
+          type: boolean
+          default: false
+
+    ScanResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        result:
+          type: string
+          enum: [success, invalid_code, expired_ticket, already_used, event_not_started, event_ended, wrong_event, insufficient_access, system_error]
+        message:
+          type: string
+        check_in_id:
+          type: integer
+        attendee_info:
+          type: object
+        event_info:
+          type: object
+        warnings:
+          type: array
+          items:
+            type: string
+        timestamp:
+          type: string
+          format: date-time
+
+    ScanSession:
+      type: object
+      properties:
+        id:
+          type: integer
+        uuid:
+          type: string
+          format: uuid
+        session_token:
+          type: string
+        user_id:
+          type: string
+        event_id:
+          type: string
+        device_id:
+          type: string
+        is_active:
+          type: boolean
+        started_at:
+          type: string
+          format: date-time
+        scans_performed:
+          type: integer
+        successful_scans:
+          type: integer
+        failed_scans:
+          type: integer
+
+    ScanSessionStart:
+      type: object
+      required:
+        - event_id
+        - device_id
+      properties:
+        event_id:
+          type: string
+        location_id:
+          type: integer
+        device_id:
+          type: string
+        device_name:
+          type: string
+        device_info:
+          type: object
+
+    # Error Response
+    Error:
+      type: object
+      properties:
+        detail:
+          type: string
+          example: "The requested resource was not found"
+        error_code:
+          type: string
+          example: "RESOURCE_NOT_FOUND"
+        timestamp:
+          type: string
+          format: date-time
+          example: "2025-08-20T10:30:00Z"
+
+tags:
+  - name: Authentication
+    description: User authentication and authorization
+  - name: Events
+    description: Event management operations
+  - name: Recurring Events
+    description: Recurring event series management
+  - name: Waitlist
+    description: Event waitlist management
+  - name: Check-in
+    description: QR code scanning and check-in system
+  - name: WebSocket
+    description: Real-time WebSocket connections
+
+externalDocs:
+  description: EventTicketing Documentation
+  url: https://docs.eventticket.example.com

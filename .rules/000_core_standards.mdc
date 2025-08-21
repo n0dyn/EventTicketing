@@ -1,0 +1,187 @@
+---
+alwaysApply: true
+---
+
+# Core Coding Standards - EventTicketing Project
+
+## Overview
+This file contains the fundamental coding standards and conventions that apply across all components of the EventTicketing project.
+
+## General Principles
+
+### Code Quality
+- **Readability**: Code should be self-documenting and easy to understand
+- **Maintainability**: Follow SOLID principles and design patterns
+- **Testability**: All code should be testable with unit tests
+- **Performance**: Optimize for user experience, not premature optimization
+
+### Documentation Standards
+- **Docstrings**: Required for all public functions and classes
+- **Type Hints**: Mandatory for all Python code
+- **Comments**: Explain "why", not "what" the code does
+- **README**: Update with significant changes
+
+## Language-Specific Standards
+
+### Python (Backend)
+```python
+# Naming conventions
+- Classes: PascalCase
+- Functions/variables: snake_case
+- Constants: UPPER_SNAKE_CASE
+- Private methods: _leading_underscore
+
+# Import organization
+1. Standard library
+2. Third-party packages
+3. Local application imports
+```
+
+### TypeScript (Frontend)
+```typescript
+// Naming conventions
+- Classes/Interfaces: PascalCase
+- Functions/variables: camelCase
+- Constants: UPPER_SNAKE_CASE
+- Private methods: #privateField
+
+// File naming
+- Components: PascalCase.tsx
+- Utilities: camelCase.ts
+- Styles: camelCase.module.css
+```
+
+## Code Structure
+
+### Backend (FastAPI)
+```
+app/
+├── api/v1/endpoints/     # API endpoints
+├── models/              # Database models
+├── schemas/             # Pydantic schemas
+├── services/            # Business logic
+├── core/               # Core configurations
+└── tests/              # Test files
+```
+
+### Frontend (Next.js)
+```
+src/
+├── app/                # App router pages
+├── components/         # Reusable components
+├── lib/               # Utilities and helpers
+├── hooks/             # Custom React hooks
+├── types/             # TypeScript definitions
+└── styles/            # CSS modules
+```
+
+## Testing Requirements
+- **Unit Tests**: Minimum 80% coverage
+- **Integration Tests**: Critical user flows
+- **E2E Tests**: Key user journeys
+- **Test Naming**: descriptive_test_name
+
+## Security Standards
+- **Input Validation**: Validate all user inputs
+- **Authentication**: JWT tokens with refresh mechanism
+- **Authorization**: Role-based access control (RBAC)
+- **Data Protection**: Encrypt sensitive data at rest
+- **HTTPS**: All API communications over HTTPS
+
+## Performance Guidelines
+- **Database**: Use indexes for frequently queried fields
+- **API**: Implement pagination for list endpoints
+- **Caching**: Redis for session management
+- **Images**: Optimize and lazy load
+- **Bundle Size**: Monitor and optimize frontend bundle size# Core Coding Standards - EventTicketing Project
+
+## Overview
+This file contains the fundamental coding standards and conventions that apply across all components of the EventTicketing project.
+
+## General Principles
+
+### Code Quality
+- **Readability**: Code should be self-documenting and easy to understand
+- **Maintainability**: Follow SOLID principles and design patterns
+- **Testability**: All code should be testable with unit tests
+- **Performance**: Optimize for user experience, not premature optimization
+
+### Documentation Standards
+- **Docstrings**: Required for all public functions and classes
+- **Type Hints**: Mandatory for all Python code
+- **Comments**: Explain "why", not "what" the code does
+- **README**: Update with significant changes
+
+## Language-Specific Standards
+
+### Python (Backend)
+```python
+# Naming conventions
+- Classes: PascalCase
+- Functions/variables: snake_case
+- Constants: UPPER_SNAKE_CASE
+- Private methods: _leading_underscore
+
+# Import organization
+1. Standard library
+2. Third-party packages
+3. Local application imports
+```
+
+### TypeScript (Frontend)
+```typescript
+// Naming conventions
+- Classes/Interfaces: PascalCase
+- Functions/variables: camelCase
+- Constants: UPPER_SNAKE_CASE
+- Private methods: #privateField
+
+// File naming
+- Components: PascalCase.tsx
+- Utilities: camelCase.ts
+- Styles: camelCase.module.css
+```
+
+## Code Structure
+
+### Backend (FastAPI)
+```
+app/
+├── api/v1/endpoints/     # API endpoints
+├── models/              # Database models
+├── schemas/             # Pydantic schemas
+├── services/            # Business logic
+├── core/               # Core configurations
+└── tests/              # Test files
+```
+
+### Frontend (Next.js)
+```
+src/
+├── app/                # App router pages
+├── components/         # Reusable components
+├── lib/               # Utilities and helpers
+├── hooks/             # Custom React hooks
+├── types/             # TypeScript definitions
+└── styles/            # CSS modules
+```
+
+## Testing Requirements
+- **Unit Tests**: Minimum 80% coverage
+- **Integration Tests**: Critical user flows
+- **E2E Tests**: Key user journeys
+- **Test Naming**: descriptive_test_name
+
+## Security Standards
+- **Input Validation**: Validate all user inputs
+- **Authentication**: JWT tokens with refresh mechanism
+- **Authorization**: Role-based access control (RBAC)
+- **Data Protection**: Encrypt sensitive data at rest
+- **HTTPS**: All API communications over HTTPS
+
+## Performance Guidelines
+- **Database**: Use indexes for frequently queried fields
+- **API**: Implement pagination for list endpoints
+- **Caching**: Redis for session management
+- **Images**: Optimize and lazy load
+- **Bundle Size**: Monitor and optimize frontend bundle size

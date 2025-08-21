@@ -1,0 +1,379 @@
+name: Frontend CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/frontend-ci.yml'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/frontend-ci.yml'
+
+env:
+  NODE_VERSION: "18"
+
+jobs:
+  lint-and-format:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./frontend
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Run ESLint
+      run: npm run lint
+    
+    - name: Run TypeScript type checking
+      run: npm run type-check
+    
+    - name: Check code formatting with Prettier
+      run: |
+        npx prettier --check "src/**/*.{ts,tsx,js,jsx,json,css,md}" || (
+          echo "Code formatting issues found. Run 'npm run format' to fix them."
+          exit 1
+        )
+
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./frontend
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Run tests with coverage
+      run: npm run test:coverage
+      env:
+        CI: true
+    
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./frontend/coverage/lcov.info
+        flags: frontend
+        name: frontend-coverage
+
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./frontend
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Create production environment file
+      run: |
+        cat > .env.production << EOF
+        NEXT_PUBLIC_API_URL=https://api.eventtickets.example.com/api/v1
+        NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=${{ secrets.STRIPE_PUBLISHABLE_KEY }}
+        NEXT_PUBLIC_APP_NAME=EventTicketing
+        NEXT_PUBLIC_APP_VERSION=${{ github.sha }}
+        EOF
+    
+    - name: Build application
+      run: npm run build
+      env:
+        NODE_ENV: production
+    
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: frontend-build
+        path: frontend/.next
+        retention-days: 7
+
+  security-scan:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./frontend
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Run npm audit
+      run: npm audit --audit-level=moderate
+      continue-on-error: true
+    
+    - name: Run dependency vulnerability check
+      run: npx audit-ci --moderate
+      continue-on-error: true
+
+  e2e-tests:
+    runs-on: ubuntu-latest
+    needs: [build]
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: test_eventtickets
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+    
+    - name: Setup Python for backend
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+    
+    - name: Install Poetry
+      uses: snok/install-poetry@v1
+      with:
+        version: "1.7.1"
+        virtualenvs-create: true
+        virtualenvs-in-project: true
+    
+    - name: Install backend dependencies
+      working-directory: ./backend
+      run: poetry install --no-interaction
+    
+    - name: Start backend server
+      working-directory: ./backend
+      run: |
+        cat > .env.test << EOF
+        DATABASE_URL=postgresql+asyncpg://test_user:test_password@localhost:5432/test_eventtickets
+        REDIS_URL=redis://localhost:6379/0
+        SECRET_KEY=test_secret_key_for_e2e_only
+        ENVIRONMENT=test
+        PROJECT_NAME=EventTicketing E2E Test
+        BACKEND_CORS_ORIGINS=["http://localhost:3000"]
+        FRONTEND_URL=http://localhost:3000
+        EOF
+        poetry run alembic upgrade head &
+        poetry run uvicorn app.main:app --host 0.0.0.0 --port 8000 &
+        sleep 10
+      env:
+        DATABASE_URL: postgresql+asyncpg://test_user:test_password@localhost:5432/test_eventtickets
+    
+    - name: Install frontend dependencies
+      working-directory: ./frontend
+      run: npm ci
+    
+    - name: Download build artifacts
+      uses: actions/download-artifact@v3
+      with:
+        name: frontend-build
+        path: frontend/.next
+    
+    - name: Start frontend server
+      working-directory: ./frontend
+      run: |
+        cat > .env.local << EOF
+        NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
+        NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_test_mock_key
+        EOF
+        npm start &
+        sleep 10
+    
+    - name: Install Playwright
+      working-directory: ./frontend
+      run: npx playwright install --with-deps chromium
+    
+    - name: Run E2E tests
+      working-directory: ./frontend
+      run: npx playwright test
+      env:
+        CI: true
+    
+    - name: Upload E2E test reports
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: e2e-test-reports
+        path: frontend/test-results/
+        retention-days: 7
+
+  lighthouse-audit:
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: github.event_name == 'pull_request'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+    
+    - name: Install dependencies
+      working-directory: ./frontend
+      run: npm ci
+    
+    - name: Download build artifacts
+      uses: actions/download-artifact@v3
+      with:
+        name: frontend-build
+        path: frontend/.next
+    
+    - name: Start application for audit
+      working-directory: ./frontend
+      run: |
+        npm start &
+        sleep 10
+      env:
+        NODE_ENV: production
+    
+    - name: Run Lighthouse audit
+      uses: treosh/lighthouse-ci-action@v10
+      with:
+        configPath: './frontend/lighthouserc.json'
+        uploadArtifacts: true
+        temporaryPublicStorage: true
+        runs: 3
+
+  build-and-push:
+    runs-on: ubuntu-latest
+    needs: [lint-and-format, test, build, security-scan]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+    
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+    
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ secrets.DOCKER_USERNAME }}/eventtickets-frontend
+        tags: |
+          type=ref,event=branch
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+    
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./frontend
+        file: ./frontend/Dockerfile.prod
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        build-args: |
+          NEXT_PUBLIC_API_URL=https://api.eventtickets.example.com/api/v1
+          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=${{ secrets.STRIPE_PUBLISHABLE_KEY }}
+
+  deploy-staging:
+    runs-on: ubuntu-latest
+    needs: [build-and-push, e2e-tests]
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    environment: staging
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Deploy to staging
+      run: |
+        echo "Deploying frontend to staging environment..."
+        # This would typically involve:
+        # - Connecting to staging CDN/hosting service
+        # - Deploying static assets
+        # - Updating environment configuration
+        # - Running smoke tests
+        echo "Frontend staging deployment would happen here"
+
+  deploy-production:
+    runs-on: ubuntu-latest
+    needs: [build-and-push, e2e-tests]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: production
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Deploy to production
+      run: |
+        echo "Deploying frontend to production environment..."
+        # This would typically involve:
+        # - Connecting to production CDN/hosting service
+        # - Blue-green deployment
+        # - Cache invalidation
+        # - Health checks
+        # - Rollback capability
+        echo "Frontend production deployment would happen here"

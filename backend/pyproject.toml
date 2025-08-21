@@ -1,0 +1,76 @@
+[tool.poetry]
+name = "eventticketing"
+version = "0.1.0"
+description = "A modern, open-source event ticketing and management platform"
+authors = ["EventTicketing Team <info@eventticketing.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.10"
+fastapi = "^0.103.0"
+uvicorn = {extras = ["standard"], version = "^0.23.0"}
+sqlalchemy = "^2.0.20"
+alembic = "^1.12.0"
+pydantic = {extras = ["email"], version = "^2.3.0"}
+pydantic-settings = "^2.0.3"
+python-jose = {extras = ["cryptography"], version = "^3.3.0"}
+passlib = {extras = ["bcrypt"], version = "^1.7.4"}
+python-multipart = "^0.0.6"
+asyncpg = "^0.29.0"
+redis = "^5.0.0"
+fastapi-pagination = "^0.12.9"
+httpx = "^0.24.1"
+pytest = "^7.4.0"
+pytest-asyncio = "^0.21.1"
+stripe = "^10.0.0"
+python-dateutil = "^2.8.2"
+pillow = "^10.0.0"
+qrcode = "^7.4.2"
+openpyxl = "^3.1.2"
+requests = "^2.31.0"
+fastapi-mail = "^1.4.1"
+apscheduler = "^3.10.4"
+jinja2 = "^3.1.2"
+slowapi = "^0.1.9"
+aiofiles = "^23.2.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.0"
+pytest-cov = "^4.1.0"
+pytest-asyncio = "^0.21.1"
+black = "^23.7.0"
+isort = "^5.12.0"
+mypy = "^1.5.1"
+ruff = "^0.0.288"
+pre-commit = "^3.4.0"
+safety = "^2.3.5"
+bandit = "^1.7.5"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 100
+target-version = ["py310"]
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+strict_optional = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+select = ["E", "F", "I", "N", "W", "B", "COM", "C90"]
+ignore = [] 
