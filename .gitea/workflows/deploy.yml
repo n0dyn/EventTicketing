@@ -1,0 +1,183 @@
+name: Deploy EventTicketing to Remote VM
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - develop
+  workflow_dispatch:
+
+env:
+  REMOTE_HOST: 10.147.19.100
+  REMOTE_USER: n0de
+  REMOTE_PATH: /home/n0de/eventticketing
+  COMPOSE_FILE: docker-compose.production.yml
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Display Port Configuration
+        run: |
+          echo "📋 EventTicketing Port Configuration (CONFLICT-FREE)"
+          echo "════════════════════════════════════════════════════"
+          echo "PostgreSQL:  5436:5432 (avoids 5432, 5435)"
+          echo "Redis:       6381:6379 (avoids 6379, 6380)"
+          echo "Django:      8002:8000 (avoids 8000, 8001)"
+          echo "Nginx HTTP:  9080:80"
+          echo "Nginx HTTPS: 9443:443"
+          echo "════════════════════════════════════════════════════"
+      
+      - name: Deploy to remote VM
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H ${{ env.REMOTE_HOST }} >> ~/.ssh/known_hosts
+          
+          ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_HOST }} << 'DEPLOY_SCRIPT'
+            set -e
+            
+            echo "🚀 Starting EventTicketing Deployment"
+            echo "════════════════════════════════════════"
+            
+            # Navigate to deployment directory
+            cd ${{ env.REMOTE_PATH }}
+            
+            # Pull latest code from Gitea
+            echo "📥 Pulling latest code from Gitea..."
+            git pull origin main || git pull origin master || git pull origin develop
+            
+            # Copy production environment file if it doesn't exist
+            if [ ! -f .env.production ]; then
+              echo "⚠️  Creating .env.production template..."
+              cat > .env.production << 'ENV_FILE'
+          # Database
+          POSTGRES_PASSWORD=change_me_in_production
+          
+          # Django
+          SECRET_KEY=change_me_in_production
+          JWT_SECRET=change_me_in_production
+          DEBUG=False
+          ALLOWED_HOSTS=10.147.19.100,127.0.0.1,localhost
+          
+          # Deployment
+          ENVIRONMENT=production
+          ENV_FILE
+              echo "⚠️  Please update .env.production with secure values!"
+            fi
+            
+            # Load environment
+            export $(cat .env.production | grep -v '#' | xargs)
+            
+            # Check for port conflicts
+            echo "🔍 Checking for port conflicts..."
+            for port in 5436 6381 8002 9080 9443; do
+              if netstat -tlnp 2>/dev/null | grep -q ":$port "; then
+                echo "❌ ERROR: Port $port is already in use!"
+                exit 1
+              fi
+            done
+            echo "✅ No port conflicts detected"
+            
+            # Build Docker images
+            echo "🔨 Building Docker images..."
+            docker-compose -f ${{ env.COMPOSE_FILE }} build --pull
+            
+            # Stop old containers if running
+            echo "⛔ Stopping old containers..."
+            docker-compose -f ${{ env.COMPOSE_FILE }} down || true
+            
+            # Start new containers
+            echo "🚀 Starting services..."
+            docker-compose -f ${{ env.COMPOSE_FILE }} up -d
+            
+            # Wait for services to be ready
+            echo "⏳ Waiting for services to start..."
+            sleep 15
+            
+            # Run migrations
+            echo "🔄 Running database migrations..."
+            docker-compose -f ${{ env.COMPOSE_FILE }} exec -T web python manage.py migrate
+            
+            # Initialize RBAC
+            echo "🔐 Initializing RBAC system..."
+            docker-compose -f ${{ env.COMPOSE_FILE }} exec -T web python manage.py shell << 'RBAC_INIT'
+          from accounts.enhanced_rbac import RBACUtils
+          if not RBACUtils.get_role_permissions("master_admin"):
+              RBACUtils.initialize_roles()
+              print("✅ RBAC initialized successfully")
+          else:
+              print("✅ RBAC already initialized")
+          RBAC_INIT
+            
+            # Collect static files
+            echo "📦 Collecting static files..."
+            docker-compose -f ${{ env.COMPOSE_FILE }} exec -T web python manage.py collectstatic --noinput
+            
+            echo ""
+            echo "════════════════════════════════════════"
+            echo "✅ Deployment completed successfully!"
+            echo "════════════════════════════════════════"
+          DEPLOY_SCRIPT
+      
+      - name: Verify deployment
+        run: |
+          ssh ${{ env.REMOTE_USER }}@${{ env.REMOTE_HOST }} << 'VERIFY_SCRIPT'
+            set -e
+            cd ${{ env.REMOTE_PATH }}
+            
+            echo "🔍 VERIFICATION CHECKS"
+            echo "════════════════════════════════════════"
+            
+            # Check container status
+            echo "📦 Container Status:"
+            docker-compose -f ${{ env.COMPOSE_FILE }} ps
+            
+            echo ""
+            echo "🔗 Service Endpoints:"
+            echo "  HTTP:  http://10.147.19.100:9080"
+            echo "  HTTPS: https://10.147.19.100:9443"
+            echo "  API:   http://10.147.19.100:9080/api/v1/"
+            
+            echo ""
+            echo "📊 Port Allocation:"
+            netstat -tlnp 2>/dev/null | grep -E ':(5436|6381|8002|9080|9443)' || echo "Ports configured but may be in grace period"
+            
+            echo ""
+            echo "✅ Deployment verification complete!"
+            echo "════════════════════════════════════════"
+          VERIFY_SCRIPT
+
+      - name: Post-deployment info
+        if: always()
+        run: |
+          echo "📋 DEPLOYMENT INFORMATION"
+          echo "════════════════════════════════════════"
+          echo "Remote Host:     10.147.19.100"
+          echo "SSH User:        n0de"
+          echo "Project Path:    /home/n0de/eventticketing"
+          echo "Compose File:    docker-compose.production.yml"
+          echo ""
+          echo "🌐 ACCESS URLS:"
+          echo "  HTTP:          http://10.147.19.100:9080"
+          echo "  HTTPS:         https://10.147.19.100:9443"
+          echo "  API Base:      http://10.147.19.100:9080/api/v1/"
+          echo ""
+          echo "📊 PORT MAPPING:"
+          echo "  PostgreSQL:    5436 → 5432"
+          echo "  Redis:         6381 → 6379"
+          echo "  Django:        8002 → 8000"
+          echo "  Nginx HTTP:    9080 → 80"
+          echo "  Nginx HTTPS:   9443 → 443"
+          echo ""
+          echo "✅ Check logs: ssh n0de@10.147.19.100 'cd /home/n0de/eventticketing && docker-compose -f docker-compose.production.yml logs -f'"
+          echo "════════════════════════════════════════"
+

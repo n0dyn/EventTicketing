@@ -3,103 +3,172 @@ version: '3.8'
 services:
   # PostgreSQL Database
   postgres:
-    image: postgres:14-alpine
-    container_name: eventticketing-postgres
+    image: postgres:15-alpine
+    container_name: eventticketing_postgres
+    environment:
+      POSTGRES_DB: ${DB_NAME:-eventticketing}
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-password}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=""
-      - POSTGRES_DB=eventticketing
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     ports:
-      - "5435:5432"
+      - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres}"]
+      interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - eventticketing
+    restart: unless-stopped
 
-  # Redis for caching and session management
+  # Redis Cache & Message Broker
   redis:
     image: redis:7-alpine
-    container_name: eventticketing-redis
-    ports:
-      - "6381:6379"
+    container_name: eventticketing_redis
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD:-redis_password}
     volumes:
       - redis_data:/data
-    command: redis-server --save 60 1 --loglevel warning
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - eventticketing
+    restart: unless-stopped
 
-  # Backend API
+  # Django Backend
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile.dev
-    container_name: eventticketing-backend
-    volumes:
-      - ./backend:/app
-    ports:
-      - "8001:8000"
+      context: ./django_backend
+      dockerfile: Dockerfile
+    container_name: eventticketing_backend
+    command: >
+      sh -c "
+        python manage.py migrate &&
+        python manage.py collectstatic --noinput &&
+        gunicorn --bind 0.0.0.0:8000 
+                 --workers 4 
+                 --timeout 120 
+                 --access-logfile - 
+                 --error-logfile - 
+                 eventticketing.wsgi:application
+      "
     environment:
-      - SQLALCHEMY_DATABASE_URI=postgresql+asyncpg://postgres@postgres:5432/eventticketing
-      - POSTGRES_SERVER=postgres
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=""
-      - POSTGRES_DB=eventticketing
-      - REDIS_URL=redis://redis:6379/0
-      - JWT_SECRET=changeme
-      - ENVIRONMENT=development
-      - BACKEND_CORS_ORIGINS=["http://localhost:3001", "http://127.0.0.1:3001", "http://localhost:3002"]
+      DJANGO_SETTINGS_MODULE: eventticketing.settings_production
+      DEBUG: "False"
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-localhost,127.0.0.1}
+      SECRET_KEY: ${DJANGO_SECRET_KEY:-change-me-in-production}
+      DB_NAME: ${DB_NAME:-eventticketing}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-password}
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      EMAIL_HOST: ${EMAIL_HOST:-smtp.gmail.com}
+      EMAIL_PORT: ${EMAIL_PORT:-587}
+      EMAIL_HOST_USER: ${EMAIL_HOST_USER}
+      EMAIL_HOST_PASSWORD: ${EMAIL_HOST_PASSWORD}
+      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-noreply@eventticketing.com}
+    volumes:
+      - ./django_backend:/app
+      - static_volume:/app/staticfiles
+      - media_volume:/app/media
+      - logs_volume:/app/logs
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - eventticketing
+    restart: unless-stopped
+
+  # Celery Worker (async tasks)
+  celery_worker:
+    build:
+      context: ./django_backend
+      dockerfile: Dockerfile
+    container_name: eventticketing_celery
+    command: celery -A eventticketing worker -l info
+    environment:
+      DJANGO_SETTINGS_MODULE: eventticketing.settings_production
+      DEBUG: "False"
+      DB_NAME: ${DB_NAME:-eventticketing}
+      DB_USER: ${DB_USER:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:-password}
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    volumes:
+      - ./django_backend:/app
+      - logs_volume:/app/logs
     depends_on:
       - postgres
       - redis
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+      - backend
+    networks:
+      - eventticketing
+    restart: unless-stopped
 
-  # Frontend Next.js app
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: eventticketing_nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+      - static_volume:/app/staticfiles:ro
+      - media_volume:/app/media:ro
+    depends_on:
+      - backend
+    networks:
+      - eventticketing
+    restart: unless-stopped
+
+  # Frontend (Next.js)
   frontend:
     build:
       context: ./frontend
-      dockerfile: Dockerfile.dev
-    container_name: eventticketing-frontend
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-    ports:
-      - "3001:3000"
+      dockerfile: Dockerfile
+    container_name: eventticketing_frontend
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8001
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    ports:
+      - "3000:3000"
     depends_on:
       - backend
-    command: npm run dev
-
-  # Admin panel (optional)
-  # admin:
-  #   build:
-  #     context: ./admin
-  #     dockerfile: Dockerfile.dev
-  #   container_name: eventticketing-admin
-  #   volumes:
-  #     - ./admin:/app
-  #     - /app/node_modules
-  #   ports:
-  #     - "3001:3000"
-  #   environment:
-  #     - REACT_APP_API_URL=http://localhost:8000
-  #   depends_on:
-  #     - backend
-  #   command: npm start
-
-  # PgAdmin for database management (optional)
-  pgadmin:
-    image: dpage/pgadmin4
-    container_name: eventticketing-pgadmin
-    environment:
-      - PGADMIN_DEFAULT_EMAIL=admin@admin.com
-      - PGADMIN_DEFAULT_PASSWORD=admin
-    ports:
-      - "5051:80"
-    depends_on:
-      - postgres
+    networks:
+      - eventticketing
+    restart: unless-stopped
 
 volumes:
   postgres_data:
-  redis_data: 
+  redis_data:
+  static_volume:
+  media_volume:
+  logs_volume:
+
+networks:
+  eventticketing:
+    driver: bridge

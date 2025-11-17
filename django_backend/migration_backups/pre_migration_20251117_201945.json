@@ -1,0 +1,12 @@
+{
+  "timestamp": "2025-11-17T20:19:45.589299",
+  "pre_migration_state": {
+    "users": 5,
+    "organizations": 1,
+    "events": 0
+  },
+  "test_data_created": {
+    "user": "migration_test_user@example.com",
+    "organization": "Test Migration Organization"
+  }
+}

@@ -1,7 +1,6 @@
 import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import axios from 'axios';
-import Cookies from 'js-cookie';
+import { apiClient, getTokens, setTokens, clearTokens } from '@/lib/api/client';
 
 interface LoginData {
   email: string;
@@ -20,13 +19,21 @@ interface ForgotPasswordData {
 }
 
 interface ResetPasswordData {
+  email: string;
   token: string;
   new_password: string;
+  new_password_confirm: string;
 }
 
 interface AuthResponse {
-  access_token: string;
-  token_type: string;
+  access: string;
+  refresh: string;
+  user?: {
+    id: string;
+    email: string;
+    is_staff?: boolean;
+    is_superuser?: boolean;
+  };
 }
 
 export const useAuth = () => {
@@ -34,41 +41,28 @@ export const useAuth = () => {
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
 
-  const setAuthToken = useCallback((token: string) => {
-    Cookies.set('auth_token', token, { expires: 7, secure: true });
-    axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-  }, []);
-
-  const removeAuthToken = useCallback(() => {
-    Cookies.remove('auth_token');
-    delete axios.defaults.headers.common['Authorization'];
-  }, []);
-
   const login = useCallback(
     async (data: LoginData) => {
       setIsLoading(true);
       setError(null);
       try {
-        const response = await axios.post<AuthResponse>(
-          `${process.env.NEXT_PUBLIC_API_URL}/api/v1/auth/login/access-token`,
+        const response = await apiClient.post<AuthResponse>(
+          '/api/v1/auth/login/',
           data
         );
-        setAuthToken(response.data.access_token);
+        
+        const { access, refresh } = response.data;
+        setTokens({ access, refresh });
         
         // Get user info to determine redirect
         try {
-          const userResponse = await axios.get(
-            `${process.env.NEXT_PUBLIC_API_URL}/api/v1/users/me`,
-            {
-              headers: {
-                Authorization: `Bearer ${response.data.access_token}`,
-              },
-            }
+          const userResponse = await apiClient.get(
+            '/api/v1/auth/me/'
           );
           
           const user = userResponse.data;
           // Redirect admins to admin dashboard, regular users to user dashboard
-          if (user.is_superuser) {
+          if (user.is_staff || user.is_superuser) {
             router.push('/admin');
           } else {
             router.push('/dashboard');
@@ -79,37 +73,9 @@ export const useAuth = () => {
         }
         
         return response.data;
-      } catch (err) {
-        if (axios.isAxiosError(err) && err.response) {
-          setError(err.response.data.detail || 'Login failed');
-        } else {
-          setError('An unexpected error occurred');
-        }
-        throw err;
-      } finally {
-        setIsLoading(false);
-      }
-    },
-    [router, setAuthToken]
-  );
-
-  const register = useCallback(
-    async (data: RegisterData) => {
-      setIsLoading(true);
-      setError(null);
-      try {
-        const response = await axios.post(
-          `${process.env.NEXT_PUBLIC_API_URL}/api/v1/auth/register`,
-          data
-        );
-        router.push('/auth/login?registered=true');
-        return response.data;
-      } catch (err) {
-        if (axios.isAxiosError(err) && err.response) {
-          setError(err.response.data.detail || 'Registration failed');
-        } else {
-          setError('An unexpected error occurred');
-        }
+      } catch (err: any) {
+        const message = err.response?.data?.detail || err.response?.data?.email?.[0] || 'Login failed';
+        setError(message);
         throw err;
       } finally {
         setIsLoading(false);
@@ -118,28 +84,67 @@ export const useAuth = () => {
     [router]
   );
 
-  const logout = useCallback(() => {
-    removeAuthToken();
-    router.push('/auth/login');
-  }, [removeAuthToken, router]);
+  const register = useCallback(
+    async (data: RegisterData) => {
+      setIsLoading(true);
+      setError(null);
+      try {
+        const response = await apiClient.post<AuthResponse>(
+          '/api/v1/auth/register/',
+          {
+            ...data,
+            password_confirm: data.password,
+          }
+        );
+        
+        const { access, refresh } = response.data;
+        setTokens({ access, refresh });
+        
+        // Redirect to dashboard after successful registration
+        router.push('/dashboard');
+        return response.data;
+      } catch (err: any) {
+        const message = err.response?.data?.detail || 
+                       err.response?.data?.email?.[0] ||
+                       err.response?.data?.password?.[0] ||
+                       'Registration failed';
+        setError(message);
+        throw err;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [router]
+  );
+
+  const logout = useCallback(async () => {
+    try {
+      // Call logout endpoint
+      await apiClient.post('/api/v1/auth/logout/', {
+        refresh: getTokens()?.refresh,
+      }).catch(() => {
+        // Ignore logout endpoint errors
+      });
+    } finally {
+      clearTokens();
+      router.push('/auth/login');
+    }
+  }, [router]);
 
   const forgotPassword = useCallback(
     async (data: ForgotPasswordData) => {
       setIsLoading(true);
       setError(null);
       try {
-        const response = await axios.post(
-          `${process.env.NEXT_PUBLIC_API_URL}/api/v1/auth/password-reset`,
+        const response = await apiClient.post(
+          '/api/v1/auth/password/reset/',
           data
         );
         router.push('/auth/forgot-password?sent=true');
         return response.data;
-      } catch (err) {
-        if (axios.isAxiosError(err) && err.response) {
-          setError(err.response.data.detail || 'Password reset request failed');
-        } else {
-          setError('An unexpected error occurred');
-        }
+      } catch (err: any) {
+        const message = err.response?.data?.detail || 'Password reset request failed';
+        setError(message);
         throw err;
       } finally {
         setIsLoading(false);
@@ -153,18 +158,15 @@ export const useAuth = () => {
       setIsLoading(true);
       setError(null);
       try {
-        const response = await axios.post(
-          `${process.env.NEXT_PUBLIC_API_URL}/api/v1/auth/password-reset/confirm`,
+        const response = await apiClient.post(
+          '/api/v1/auth/password/reset/confirm/',
           data
         );
         router.push('/auth/login?reset=true');
         return response.data;
-      } catch (err) {
-        if (axios.isAxiosError(err) && err.response) {
-          setError(err.response.data.detail || 'Password reset failed');
-        } else {
-          setError('An unexpected error occurred');
-        }
+      } catch (err: any) {
+        const message = err.response?.data?.detail || err.response?.data?.new_password?.[0] || 'Password reset failed';
+        setError(message);
         throw err;
       } finally {
         setIsLoading(false);
@@ -182,4 +184,4 @@ export const useAuth = () => {
     isLoading,
     error,
   };
-}; 
+};

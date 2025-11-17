@@ -1,0 +1,160 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database - Using port 5436 (5432 and 5435 in use)
+  postgres:
+    image: postgres:15-alpine
+    container_name: eventticketing-postgres
+    environment:
+      POSTGRES_DB: eventticketing_prod
+      POSTGRES_USER: ticketing_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me_in_production}
+    ports:
+      - "5436:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backups:/backups
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ticketing_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - eventticketing-network
+    restart: unless-stopped
+
+  # Redis Cache - Using port 6381 (6379 and 6380 in use)
+  redis:
+    image: redis:7-alpine
+    container_name: eventticketing-redis
+    ports:
+      - "6381:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - eventticketing-network
+    restart: unless-stopped
+
+  # Django Backend - Using port 8002 (8000 and 8001 in use)
+  web:
+    image: eventticketing:latest
+    container_name: eventticketing-web
+    build:
+      context: ./django_backend
+      dockerfile: Dockerfile
+    command: >
+      sh -c "python manage.py migrate &&
+             python manage.py collectstatic --noinput &&
+             gunicorn --bind 0.0.0.0:8000 --workers 4 --timeout 120 config.wsgi:application"
+    environment:
+      DEBUG: "False"
+      ALLOWED_HOSTS: "10.147.19.100,127.0.0.1,localhost"
+      DATABASE_URL: "postgresql://ticketing_user:${POSTGRES_PASSWORD:-change_me_in_production}@postgres:5432/eventticketing_prod"
+      REDIS_URL: "redis://redis:6379/0"
+      SECRET_KEY: ${SECRET_KEY:-change_me_in_production}
+      JWT_SECRET: ${JWT_SECRET:-change_me_in_production}
+      ENVIRONMENT: production
+    ports:
+      - "8002:8000"
+    volumes:
+      - ./django_backend/staticfiles:/app/staticfiles
+      - ./django_backend/media:/app/media
+      - ./logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - eventticketing-network
+    restart: unless-stopped
+
+  # Nginx Reverse Proxy - Using port 9080 (80 restricted, 8000/8001/8081 in use)
+  nginx:
+    image: nginx:alpine
+    container_name: eventticketing-nginx
+    ports:
+      - "9080:80"
+      - "9443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./django_backend/staticfiles:/usr/share/nginx/html/static:ro
+      - ./django_backend/media:/usr/share/nginx/html/media:ro
+      - nginx_cache:/var/cache/nginx
+    depends_on:
+      - web
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - eventticketing-network
+    restart: unless-stopped
+
+  # Celery Worker for async tasks (if needed)
+  celery-worker:
+    image: eventticketing:latest
+    container_name: eventticketing-celery-worker
+    build:
+      context: ./django_backend
+      dockerfile: Dockerfile
+    command: celery -A config worker -l info
+    environment:
+      DEBUG: "False"
+      DATABASE_URL: "postgresql://ticketing_user:${POSTGRES_PASSWORD:-change_me_in_production}@postgres:5432/eventticketing_prod"
+      REDIS_URL: "redis://redis:6379/0"
+      SECRET_KEY: ${SECRET_KEY:-change_me_in_production}
+      ENVIRONMENT: production
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - eventticketing-network
+    restart: unless-stopped
+
+  # Celery Beat for scheduled tasks (if needed)
+  celery-beat:
+    image: eventticketing:latest
+    container_name: eventticketing-celery-beat
+    build:
+      context: ./django_backend
+      dockerfile: Dockerfile
+    command: celery -A config beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    environment:
+      DEBUG: "False"
+      DATABASE_URL: "postgresql://ticketing_user:${POSTGRES_PASSWORD:-change_me_in_production}@postgres:5432/eventticketing_prod"
+      REDIS_URL: "redis://redis:6379/0"
+      SECRET_KEY: ${SECRET_KEY:-change_me_in_production}
+      ENVIRONMENT: production
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - eventticketing-network
+    restart: unless-stopped
+
+networks:
+  eventticketing-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  nginx_cache:
+    driver: local
+
